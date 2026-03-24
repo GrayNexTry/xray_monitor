@@ -984,7 +984,7 @@ class XrayMonitor(App):
                 # Latest version check
                 t.append("\n")
                 t.append("  " + H * 50 + "\n", C["dim"])
-                t.append("\n  LATEST VERSION CHECK\n\n", C["accent"])
+                t.append(f"\n  {L['latest_version_check']}\n\n", C["accent"])
                 latest, url = get_latest_version()
                 if latest:
                     t.append(f"  {L['github_label']}  ", C["accent2"])

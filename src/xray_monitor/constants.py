@@ -115,6 +115,7 @@ LANG = {
         "block_header":"BLOCK",
         "percent_symbol":"%",
         "session":"session",
+        "latest_version_check":"LATEST VERSION CHECK",
     },
     "ru": {
         "title":"Мониторинг Xray",
@@ -212,5 +213,6 @@ LANG = {
         "block_header":"БЛОК",
         "percent_symbol":"%",
         "session":"сессия",
+        "latest_version_check":"ПРОВЕРКА ПОСЛЕДНЕЙ ВЕРСИИ",
     },
 }
