@@ -83,30 +83,22 @@ class XrayStats:
 
     # ── Внутренние вспомогательные методы ────────────────────
 
-    def _track(self, online_set: list, user_ips: dict, geo: Any,
-               log_ips: dict | None = None) -> None:
+    def _track(self, online_set: list, user_ips: dict, geo: Any) -> None:
         """Отслеживает события подключения/отключения. Вызывается под self._lock.
 
-        user_ips  — IP от gRPC GetStatsOnlineIpList (текущая сессия)
-        log_ips   — IP из access.log (более полные, за последние 24 ч)
+        user_ips  — IP от gRPC GetStatsOnlineIpList (только текущие активные)
+        _prev_ips — хранит ТОЛЬКО gRPC IP (не лог), чтобы grpc_online_ips был точным
         """
         cur = set(online_set)
 
-        # Объединяем IP из gRPC и из лога
-        merged_ips: dict = {}
-        for email, ips in (log_ips or {}).items():
-            merged_ips[email] = set(ips.keys())
-        for email, ips in user_ips.items():
-            if email not in merged_ips:
-                merged_ips[email] = set()
-            merged_ips[email].update(ips.keys())
-
-        stale = set(self._prev_ips.keys()) - set(merged_ips.keys()) - cur
+        # Удаляем устаревших пользователей из _prev_ips
+        stale = set(self._prev_ips.keys()) - set(user_ips.keys()) - cur
         for email in stale:
             self._prev_ips.pop(email, None)
 
         users_with_ip_events: set = set()
-        for email, ip_set in merged_ips.items():
+        for email, ips_dict in user_ips.items():
+            ip_set = set(ips_dict.keys())
             pp = self._prev_ips.get(email, set())
             for ip in ip_set - pp:
                 self.conn_events.append(ConnEvent("connect", email, ip))
@@ -165,7 +157,7 @@ class XrayStats:
             self.sess_up  = 0.0
             self.sess_dn  = 0.0
 
-    def fetch(self, geo: Any = None, log_ips: dict | None = None) -> dict:
+    def fetch(self, geo: Any = None, log_ips: dict | None = None) -> dict:  # log_ips unused, kept for compat
         if not self.stub:
             self.connect()
         stub = self.stub
@@ -242,8 +234,7 @@ class XrayStats:
                         pass
                 if geo:
                     with self._lock:
-                        self._track(R["online_users"], R["user_ips"], geo,
-                                    log_ips=log_ips)
+                        self._track(R["online_users"], R["user_ips"], geo)
             except Exception:
                 pass
 

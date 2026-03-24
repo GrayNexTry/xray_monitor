@@ -7,6 +7,7 @@ import re
 import time
 import threading
 from collections import deque, OrderedDict
+from datetime import datetime
 
 _TOP_BLOCKED_MAX = 500
 _RE_TRANSPORT    = re.compile(r"(?:tcp|udp):([^:,\s\[]+):(\d+)")
@@ -15,11 +16,23 @@ _RE_IPV4         = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 # Парсинг клиентских подключений из access.log
 # Формат: "2026/01/01 12:00:00 1.2.3.4:54321 accepted tcp:... email: user@tag"
 # или IPv6: "[::1]:54321 accepted ..."
+_RE_LOG_TS  = re.compile(r"^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s")
 _RE_SRC_IP  = re.compile(
     r"(?:^|\s)(\d{1,3}(?:\.\d{1,3}){3}):\d+\s+accepted"
     r"|(?:^|\s)\[([0-9a-fA-F:]+)\]:\d+\s+accepted"
 )
 _RE_EMAIL   = re.compile(r"email:\s*(\S+)")
+
+
+def _parse_log_ts(line: str, fallback: float) -> float:
+    """Парсит timestamp из строки лога вида '2026/01/01 12:00:00 ...'."""
+    m = _RE_LOG_TS.match(line)
+    if not m:
+        return fallback
+    try:
+        return datetime.strptime(m.group(1), "%Y/%m/%d %H:%M:%S").timestamp()
+    except ValueError:
+        return fallback
 
 
 class LogTail:
@@ -91,9 +104,12 @@ class LogTail:
                         ip    = m_ip.group(1) or m_ip.group(2) or ""
                         email = m_email.group(1).strip()
                         if ip and email:
+                            ts_line = _parse_log_ts(line, now)
                             if email not in new_client_ips:
                                 new_client_ips[email] = {}
-                            new_client_ips[email][ip] = now
+                            # Берём наибольший timestamp для этого IP
+                            prev_ts = new_client_ips[email].get(ip, 0)
+                            new_client_ips[email][ip] = max(prev_ts, ts_line)
 
                 if "-> block" not in ll and "->block" not in ll:
                     continue
@@ -124,11 +140,13 @@ class LogTail:
                 self._block_total   += block_count
                 self._block_session += block_count
                 self._block_window.extend([now] * block_count)
-                # Обновляем client_ips, убираем записи старше 24 часов
+                # Обновляем client_ips, сохраняем максимальный ts, убираем старше 24 ч
                 for email, ips in new_client_ips.items():
                     if email not in self.client_ips:
                         self.client_ips[email] = {}
-                    self.client_ips[email].update(ips)
+                    for ip, ts_val in ips.items():
+                        prev = self.client_ips[email].get(ip, 0)
+                        self.client_ips[email][ip] = max(prev, ts_val)
                 cutoff = now - 86400
                 for email in list(self.client_ips):
                     self.client_ips[email] = {
