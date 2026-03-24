@@ -10,7 +10,7 @@ from ..constants import C, L
 from ..utils import fmt_b, fmt_s, fmt_up, fmt_ts, spark, gauge, pct_col, H
 
 if TYPE_CHECKING:
-    from ..App import XrayMonitor
+    from ..app import XrayMonitor
 
 
 def render_overview(app: "XrayMonitor", d: dict) -> Text:
@@ -193,6 +193,12 @@ def render_users(app: "XrayMonitor", d: dict) -> Text:
         t.append(f"\n  {L['no_matches_for']} '{filt}'\n", C["dim"])
         return t
 
+    # Подгружаем историю один раз для всего рендера
+    tl         = app.traffic_log
+    today_hist = tl.get_today()
+    week_hist  = tl.get_weekly()   if tl.available_days() >= 2 else {}
+    month_hist = tl.get_monthly()  if tl.available_days() >= 2 else {}
+
     for idx, (email, v) in enumerate(su_list):
         up    = v.get("uplink", 0); dn = v.get("downlink", 0)
         is_on = email in online_set
@@ -213,6 +219,26 @@ def render_users(app: "XrayMonitor", d: dict) -> Text:
         t.append("  DN ", C["dn"]); t.append(f"{fmt_b(dn):>9}", C["dn"])
         if sd > 10: t.append(f" {fmt_s(sd):>9}", C["dn"])
         t.append("\n")
+
+        # ── История трафика ──────────────────────────────────
+        td = today_hist.get(email)
+        wk = week_hist.get(email)
+        mo = month_hist.get(email)
+        if td or wk or mo:
+            t.append("   ", "")
+            if td:
+                td_tot = td.get("up", 0) + td.get("dn", 0)
+                t.append("сег ", C["dim"])
+                t.append(fmt_b(td_tot), C["accent3"])
+            if wk:
+                wk_tot = wk.get("up", 0) + wk.get("dn", 0)
+                t.append("  7д ", C["dim"])
+                t.append(fmt_b(wk_tot), C["accent"])
+            if mo:
+                mo_tot = mo.get("up", 0) + mo.get("dn", 0)
+                t.append("  30д ", C["dim"])
+                t.append(fmt_b(mo_tot), C["total"])
+            t.append("\n")
 
         if hist and hist.n >= 3 and is_on:
             t.append("    ", ""); t.append(spark(hist.up, 16), C["spark_u"])

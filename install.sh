@@ -13,6 +13,7 @@ BIN_LINK="/usr/local/bin/$APP_NAME"
 SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
 REQUIRED_PY_VERSION="3.9"
 VERSION_FILE="$INSTALL_DIR/.version"
+PIP_LOG="/tmp/xray-monitor-install.log"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -169,14 +170,25 @@ fi
 
 # ── Создаём / обновляем venv и устанавливаем зависимости ────
 
+pip_run() {
+    # Запускаем pip с выводом в лог; при ошибке показываем лог и падаем
+    if ! "$@" >> "$PIP_LOG" 2>&1; then
+        spinner_stop
+        warn "pip завершился с ошибкой. Лог:"
+        tail -30 "$PIP_LOG"
+        exit 1
+    fi
+}
+
+: > "$PIP_LOG"   # очищаем лог
+
 if $IS_UPDATE && [[ -d "$VENV_DIR" ]]; then
     spinner_start "Обновляем pip..."
-    "$VENV_DIR/bin/pip" install --upgrade pip 2>/dev/null || true
+    pip_run "$VENV_DIR/bin/pip" install --upgrade pip
     spinner_stop
 
     spinner_start "Обновляем зависимости (может занять пару минут)..."
-    "$VENV_DIR/bin/pip" install --prefer-binary --upgrade "$INSTALL_DIR" 2>/dev/null || \
-        "$VENV_DIR/bin/pip" install --prefer-binary --force-reinstall "$INSTALL_DIR"
+    pip_run "$VENV_DIR/bin/pip" install --prefer-binary --upgrade "$INSTALL_DIR"
     spinner_stop "Зависимости обновлены"
 else
     spinner_start "Создаём виртуальное окружение..."
@@ -184,8 +196,8 @@ else
     spinner_stop "Виртуальное окружение создано"
 
     spinner_start "Устанавливаем зависимости (может занять пару минут)..."
-    "$VENV_DIR/bin/pip" install --upgrade pip 2>/dev/null
-    "$VENV_DIR/bin/pip" install --prefer-binary "$INSTALL_DIR"
+    pip_run "$VENV_DIR/bin/pip" install --upgrade pip
+    pip_run "$VENV_DIR/bin/pip" install --prefer-binary "$INSTALL_DIR"
     spinner_stop "Зависимости установлены"
 fi
 

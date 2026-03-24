@@ -45,6 +45,7 @@ pyinstaller \
     --hidden-import=xray_monitor.modules.log_tail \
     --hidden-import=xray_monitor.modules.sys_stats \
     --hidden-import=xray_monitor.modules.xray_manager \
+    --hidden-import=xray_monitor.modules.traffic_log \
     --hidden-import=xray_monitor.panels.dashboard \
     --hidden-import=xray_monitor.panels.system \
     --hidden-import=xray_monitor.panels.logs \

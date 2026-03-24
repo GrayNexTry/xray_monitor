@@ -25,11 +25,12 @@ from .utils import (
     H, V,
     copy_to_clipboard, HAS_QR, HAS_PSUTIL,
 )
-from .modules.geoip      import GeoIP
-from .modules.config     import XrayConfig
-from .modules.stats      import XrayStats
-from .modules.log_tail   import LogTail
-from .modules.sys_stats  import SysStats
+from .modules.geoip        import GeoIP
+from .modules.config       import XrayConfig
+from .modules.stats        import XrayStats
+from .modules.log_tail     import LogTail
+from .modules.sys_stats    import SysStats
+from .modules.traffic_log  import TrafficLog
 from .modules.xray_manager import (
     get_xray_status, start_xray, stop_xray, restart_xray,
     enable_xray, disable_xray, update_xray_async,
@@ -100,12 +101,13 @@ class XrayMonitor(App):
     def __init__(self, server: str, interval: float,
                  log_path: str, config_path: str) -> None:
         super().__init__()
-        self.xray     = XrayStats(server)
-        self.interval = interval
-        self.log_tail = LogTail(log_path)
-        self.geo      = GeoIP()
-        self.cfg      = XrayConfig(config_path)
-        self.sys_s    = SysStats()
+        self.xray        = XrayStats(server)
+        self.interval    = interval
+        self.log_tail    = LogTail(log_path)
+        self.geo         = GeoIP()
+        self.cfg         = XrayConfig(config_path)
+        self.sys_s       = SysStats()
+        self.traffic_log = TrafficLog()
         self._last_d: dict | None = None
         self._tick_n  = 0
         self._ping_hosts: list    = ["1.1.1.1", "8.8.8.8", "google.com"]
@@ -207,6 +209,12 @@ class XrayMonitor(App):
         try:
             d = self.xray.fetch(geo=self.geo if self.geo_on else None)
             self._last_d = d
+            if "error" not in d and d.get("users"):
+                threading.Thread(
+                    target=self.traffic_log.update,
+                    args=(d["users"],),
+                    daemon=True,
+                ).start()
             self._draw(d)
         except Exception as e:
             try: self.query_one(StatusBar).update(Text(f" ✗ {e}", C["err"]))
