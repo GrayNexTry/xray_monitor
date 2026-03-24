@@ -255,7 +255,8 @@ class XrayMonitor(App):
         self._tick_n += 1
         threading.Thread(target=self.log_tail.update_block_stats, daemon=True).start()
         try:
-            d = self.xray.fetch(log_ips=self.log_tail.client_ips)
+            log_snap = {em: dict(ips) for em, ips in self.log_tail.client_ips.items()}
+            d = self.xray.fetch(log_ips=log_snap)
             self._last_d = d
             if "error" not in d and d.get("users"):
                 threading.Thread(

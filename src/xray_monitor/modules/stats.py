@@ -48,6 +48,8 @@ class XrayStats:
         self._prev_online: set  = set()
         self.conn_events:  deque = deque(maxlen=200)
         self._prev_ips:    dict  = {}
+        self._prev_log_ips: dict = {}   # email -> {ip: ts} — предыдущий снимок лога
+        self._log_initialized: bool = False  # первый снимок не генерирует события
 
     # ── Подключение ──────────────────────────────────────────
 
@@ -87,44 +89,73 @@ class XrayStats:
                log_ips: dict | None = None) -> None:
         """Отслеживает события подключения/отключения. Вызывается под self._lock.
 
-        user_ips  — IP от gRPC GetStatsOnlineIpList (только текущие активные)
-        log_ips   — IP из access.log — используются ТОЛЬКО для обогащения событий IP,
-                    НЕ записываются в _prev_ips (чтобы не помечать исторические IP онлайн)
+        Источники (от надёжного к менее надёжному):
+          1. log_ips (access.log) — connect-события по новым IP
+          2. user_ips (gRPC GetStatsOnlineIpList) — disconnect-события по исчезнувшим IP
+          3. online_set (gRPC GetAllOnlineUsers / QueryStats) — user-level события без IP
         """
         cur = set(online_set)
 
-        # Удаляем устаревших пользователей из _prev_ips
-        stale = set(self._prev_ips.keys()) - set(user_ips.keys()) - cur
-        for email in stale:
-            self._prev_ips.pop(email, None)
+        # ── 1. Log-based IP connect detection ────────────────
+        # Новый IP в логе = новое подключение клиента
+        already_from_log: set = set()   # (email, ip) уже обработанные через лог
+        if log_ips is not None:
+            if not self._log_initialized:
+                # Первый снимок: просто запоминаем, события не создаём
+                self._prev_log_ips = {
+                    em: dict(ips) for em, ips in log_ips.items()
+                }
+                self._log_initialized = True
+            else:
+                for email, ip_ts in log_ips.items():
+                    prev = self._prev_log_ips.get(email, {})
+                    for ip, ts in ip_ts.items():
+                        if ip not in prev:
+                            # Новый IP — connect
+                            self.conn_events.append(ConnEvent("connect", email, ip))
+                            already_from_log.add((email, ip))
+                        elif ts > prev[ip] + 30:
+                            # Тот же IP, но существенно более новый timestamp —
+                            # переподключение (напр. после разрыва)
+                            self.conn_events.append(ConnEvent("connect", email, ip))
+                            already_from_log.add((email, ip))
+                self._prev_log_ips = {
+                    em: dict(ips) for em, ips in log_ips.items()
+                }
 
-        users_with_ip_events: set = set()
-        for email, ips_dict in user_ips.items():
-            ip_set = set(ips_dict.keys())
-            pp = self._prev_ips.get(email, set())
-            for ip in ip_set - pp:
-                self.conn_events.append(ConnEvent("connect", email, ip))
-                users_with_ip_events.add(email)
-            for ip in pp - ip_set:
-                self.conn_events.append(ConnEvent("disconnect", email, ip))
-                users_with_ip_events.add(email)
-            self._prev_ips[email] = ip_set
-
-        # Для пользователей без gRPC IP — ищем последний IP из лога
+        # ── 2. gRPC IP-level tracking (для disconnect и online-статуса) ──
         def _latest_log_ip(email: str) -> str:
             if not log_ips or email not in log_ips:
                 return ""
             ips = log_ips[email]
-            if not ips:
-                return ""
-            return max(ips, key=lambda ip: ips[ip])
+            return max(ips, key=lambda ip: ips[ip]) if ips else ""
 
+        stale = set(self._prev_ips.keys()) - set(user_ips.keys()) - cur
+        for email in stale:
+            self._prev_ips.pop(email, None)
+
+        users_with_grpc_events: set = set()
+        for email, ips_dict in user_ips.items():
+            ip_set = set(ips_dict.keys())
+            pp = self._prev_ips.get(email, set())
+            for ip in ip_set - pp:
+                if (email, ip) not in already_from_log:
+                    self.conn_events.append(ConnEvent("connect", email, ip))
+                users_with_grpc_events.add(email)
+            for ip in pp - ip_set:
+                self.conn_events.append(ConnEvent("disconnect", email, ip))
+                users_with_grpc_events.add(email)
+            self._prev_ips[email] = ip_set
+
+        # ── 3. User-level connect/disconnect (нет IP ни в gRPC, ни в логе) ─
+        log_users = set(log_ips.keys()) if log_ips else set()
         for u in cur - self._prev_online:
-            if u not in users_with_ip_events:
-                self.conn_events.append(ConnEvent("connect", u, _latest_log_ip(u)))
+            if u not in users_with_grpc_events and u not in log_users:
+                self.conn_events.append(ConnEvent("connect", u, ""))
         for u in self._prev_online - cur:
-            if u not in users_with_ip_events:
-                self.conn_events.append(ConnEvent("disconnect", u, _latest_log_ip(u)))
+            if u not in users_with_grpc_events and u not in log_users:
+                self.conn_events.append(ConnEvent("disconnect", u,
+                                                  _latest_log_ip(u)))
 
         self._prev_online = cur
 
