@@ -139,7 +139,7 @@ class XrayMonitor(App):
                             yield TrafficW("...")
                         with Vertical(id="dash-right"):
                             with Container(id="filter-bar"):
-                                yield Input(placeholder="Фильтр пользователей...", id="filter-input")
+                                yield Input(placeholder=self.L['filter_placeholder'], id="filter-input")
                             yield UsersW("...")
             with TabPane(self.L["tab_keys"], id="tab-keys"):
                 with Horizontal(id="keys-layout"):
@@ -148,7 +148,7 @@ class XrayMonitor(App):
                     with Vertical(id="keys-right"):
                         yield KeysRight("...")
                         with Horizontal(id="keys-srv-row"):
-                            yield Input(placeholder="IP или домен сервера (авто если пусто)", id="inp-server")
+                            yield Input(placeholder=self.L['server_ip_placeholder'], id="inp-server")
             with TabPane(self.L["tab_system"], id="tab-sys"):
                 with Container(id="sys-tab"):
                     with Horizontal(id="sys-top"):
@@ -418,7 +418,7 @@ class XrayMonitor(App):
         su_list = sorted(filtered.items(), key=sfn, reverse=True)
 
         if not su_list and filt:
-            t.append(f"\n  (no matches for '{filt}')\n", C["dim"])
+            t.append(f"\n  {L['no_matches_for']} '{filt}'\n", C["dim"])
             self.query_one(UsersW).update(t); return
 
         for idx, (email, v) in enumerate(su_list):
@@ -474,7 +474,7 @@ class XrayMonitor(App):
 
     def _draw_system_tab(self):
         L = self.L; sd = self.sys_s.get()
-        na = Text(f"\n  pip install psutil\n", C["dim"])
+        na = Text(f"\n  {L['psutil_hint']}\n", C["dim"])
         if not sd or not HAS_PSUTIL:
             for w in (SysCpuRam, SysDisk, SysNet, SysProcs, SysPing):
                 try: self.query_one(w).update(na)
@@ -485,7 +485,7 @@ class XrayMonitor(App):
         t = Text()
         t.append(f" {L['sys_cpu']} / {L['sys_ram']}\n\n", C["accent"])
         cpu = sd.get("cpu", 0.0)
-        t.append("  CPU  ", C["dim"]); t.append(pct_bar(cpu, 22), pct_col(cpu))
+        t.append(f"  {L['cpu_label']}  ", C["dim"]); t.append(pct_bar(cpu, 22), pct_col(cpu))
         t.append(f"  {cpu:5.1f}%\n", pct_col(cpu))
         for i, c in enumerate(sd.get("cpu_cores", [])[:8]):
             bar = "|"*int(c/100*10) + " "*(10-int(c/100*10))
@@ -493,10 +493,10 @@ class XrayMonitor(App):
             t.append(f" {c:5.1f}%\n", C["dim"])
         t.append("\n")
         rp = sd.get("ram_pct", 0.0)
-        t.append("  RAM  ", C["dim"]); t.append(pct_bar(rp, 22), pct_col(rp))
+        t.append(f"  {L['ram_label']}  ", C["dim"]); t.append(pct_bar(rp, 22), pct_col(rp))
         t.append(f"  {rp:5.1f}%\n", pct_col(rp))
-        t.append(f"  used {fmt_b(sd.get('ram_used', 0))} / {fmt_b(sd.get('ram_total', 0))}\n", C["dim"])
-        t.append(f"  free {fmt_b(sd.get('ram_free', 0))}\n", C["dim"])
+        t.append(f"  {L['used_label']} {fmt_b(sd.get('ram_used', 0))} / {fmt_b(sd.get('ram_total', 0))}\n", C["dim"])
+        t.append(f"  {L['free_label']} {fmt_b(sd.get('ram_free', 0))}\n", C["dim"])
         load = sd.get("load", (0, 0, 0))
         t.append(f"\n  {L['sys_load']}  ", C["dim"])
         t.append(f"{load[0]:.2f}  {load[1]:.2f}  {load[2]:.2f}\n",
@@ -514,14 +514,14 @@ class XrayMonitor(App):
         t.append("  /    ", C["dim"]); t.append(pct_bar(dp, 22), pct_col(dp))
         t.append(f"  {dp:5.1f}%\n", pct_col(dp))
         t.append(f"  {fmt_b(sd.get('disk_used', 0))} / {fmt_b(sd.get('disk_tot', 0))}\n", C["dim"])
-        t.append(f"\n  TCP connections\n", C["accent2"])
-        t.append(f"  ESTABLISHED  {sd.get('tcp_est', 0)}\n", C["ok"])
-        t.append(f"  LISTEN       {sd.get('tcp_listen', 0)}\n", C["dim"])
-        t.append(f"  Processes    {sd.get('procs', 0)}\n", C["dim"])
+        t.append(f"\n  {L['tcp_connections']}\n", C["accent2"])
+        t.append(f"  {L['established_label']}  {sd.get('tcp_est', 0)}\n", C["ok"])
+        t.append(f"  {L['listen_label']}       {sd.get('tcp_listen', 0)}\n", C["dim"])
+        t.append(f"  {L['processes_label']}    {sd.get('procs', 0)}\n", C["dim"])
         if sd.get("xray_pid"):
-            t.append(f"\n  Xray PID  {sd['xray_pid']}\n", C["accent2"])
-            if sd.get("xray_mem"): t.append(f"  Xray RAM  {fmt_b(sd['xray_mem'])}\n", C["accent2"])
-            if sd.get("xray_cpu"): t.append(f"  Xray CPU  {sd['xray_cpu']:.1f}%\n", C["accent2"])
+            t.append(f"\n  {L['xray_pid_label']}  {sd['xray_pid']}\n", C["accent2"])
+            if sd.get("xray_mem"): t.append(f"  {L['xray_ram_label']}  {fmt_b(sd['xray_mem'])}\n", C["accent2"])
+            if sd.get("xray_cpu"): t.append(f"  {L['xray_cpu_label']}  {sd['xray_cpu']:.1f}%\n", C["accent2"])
         try: self.query_one(SysDisk).update(t)
         except Exception: pass
 
@@ -529,16 +529,16 @@ class XrayMonitor(App):
         t = Text()
         t.append(f" {L['sys_load']} / Net\n\n", C["accent"])
         rx = sd.get("rx_s", 0); tx = sd.get("tx_s", 0)
-        t.append("  -> rx  ", C["dn"]); t.append(f"{fmt_s(rx)}\n", C["dn"])
-        t.append("  <- tx  ", C["up"]); t.append(f"{fmt_s(tx)}\n", C["up"])
-        t.append(f"\n  Total rx   {fmt_b(sd.get('rx_tot', 0))}\n", C["dim"])
-        t.append(f"  Total tx   {fmt_b(sd.get('tx_tot', 0))}\n", C["dim"])
+        t.append(f"  {L['rx_label']}  ", C["dn"]); t.append(f"{fmt_s(rx)}\n", C["dn"])
+        t.append(f"  {L['tx_label']}  ", C["up"]); t.append(f"{fmt_s(tx)}\n", C["up"])
+        t.append(f"\n  {L['total_rx_label']}   {fmt_b(sd.get('rx_tot', 0))}\n", C["dim"])
+        t.append(f"  {L['total_tx_label']}   {fmt_b(sd.get('tx_tot', 0))}\n", C["dim"])
         try: self.query_one(SysNet).update(t)
         except Exception: pass
 
         # Processes
         t = Text()
-        t.append(" Top processes (RAM)\n\n", C["accent"])
+        t.append(f" {L['top_procs_ram']}\n\n", C["accent"])
         t.append(f"  {'PID':>7}  {'NAME':<20}  {'CPU':>6}  {'RAM':>10}\n", C["dim"])
         t.append("  " + H*50 + "\n", C["dim"])
         for pid, name, cpu_p, mem in sd.get("top_procs", []):
@@ -565,7 +565,7 @@ class XrayMonitor(App):
                 t.append(f"  {host:<22} ", C["dim"])
                 t.append(gauge(min(ms, 300), 300, 10), col)
                 t.append(f"  {ms:5.0f} ms\n", col)
-        t.append("\n  DNS check\n", C["accent2"])
+        t.append(f"\n  {L['dns_check']}\n", C["accent2"])
         for dns in ["1.1.1.1", "8.8.8.8"]:
             ms = self.sys_s.ping(dns)
             t.append(f"  {dns} (DNS)  ", C["dim"])
@@ -584,17 +584,17 @@ class XrayMonitor(App):
 
         t.append(f" {L['log_title']}", C["accent"])
         if blk_s > 0:
-            t.append(f"   blocked: ", C["dim"])
+            t.append(f"   {L['log_blocked']} ", C["dim"])
             t.append(f"{blk_s}", C["err"])
-            t.append(f" session", C["dim"])
+            t.append(f" {L['session']}" if 'session' in L else " session", C["dim"])
             if blk_rate >= 0.1:
                 t.append(f"   {blk_rate:.1f}/min", C["warn"])
         t.append("\n")
 
         if top:
-            t.append(f"\n TOP BLOCKED\n", C["err"])
+            t.append(f"\n {L['top_blocked']}\n", C["err"])
             t.append("  " + H*72 + "\n", C["dim"])
-            t.append(f"  {'TARGET':<45} {'BLOCK':>8} {'%':>6}\n", C["dim"])
+            t.append(f"  {L['target_header']:<45} {L['block_header']:>8} {L['percent_symbol']:>6}\n", C["dim"])
             t.append("  " + H*72 + "\n", C["dim"])
             max_cnt = top[0][1] if top else 1
             for target, cnt in top:
@@ -703,9 +703,9 @@ class XrayMonitor(App):
             return
         if not HAS_QR:
             copy_to_clipboard(url)
-            self.notify("URL saved to /tmp/xray-clipboard.txt (pip install qrcode for QR)")
+            self.notify(self.L['url_saved_qr'])
             return
-        self.push_screen(QRModal(url, "VLESS URL"))
+        self.push_screen(QRModal(url, self.L['vless_url']))
 
     def action_restart_xray(self):
         def _do():
@@ -819,33 +819,33 @@ class XrayMonitor(App):
     def action_edit_config(self):
         path = self.cfg.path
         if not os.path.exists(path):
-            self.notify(f"Config not found: {path}", severity="error")
+            self.notify(self.L["config_not_found"].format(path=path), severity="error")
             return
         bak = self._backup_config()
         if bak:
-            self.notify(f"Backup: {os.path.basename(bak)}", severity="information")
+            self.notify(self.L["backup_done"].format(bak=os.path.basename(bak)), severity="information")
         try:
             with self.suspend():
                 subprocess.run(["nano", path])
         except Exception as e:
-            self.notify(f"Error: {e}. Path: nano {path}", severity="warning")
+            self.notify(self.L["error_path_nano"].format(err=e, path=path), severity="warning")
             return
         self.cfg._mtime = 0
         self._draw_keys_panel()
-        self.notify("Config reloaded. R to restart xray", severity="information")
+        self.notify(self.L["config_reloaded_hint"], severity="information")
 
     def action_rollback_config(self):
         bak = self._find_last_backup()
         if not bak:
-            self.notify("No backups found", severity="warning")
+            self.notify(self.L["no_backups_found"], severity="warning")
             return
         try:
             shutil.copy2(bak, self.cfg.path)
             self.cfg._mtime = 0
             self._draw_keys_panel()
-            self.notify(f"Rolled back to {os.path.basename(bak)}", severity="warning")
+            self.notify(self.L["rolled_back_to"].format(bak=os.path.basename(bak)), severity="warning")
         except Exception as e:
-            self.notify(f"Rollback error: {e}", severity="error")
+            self.notify(self.L["rollback_error"].format(err=e), severity="error")
             return
         self.action_restart_xray()
 
@@ -853,13 +853,13 @@ class XrayMonitor(App):
         def _do():
             ok, out = self.cfg.check_syntax()
             if ok is None:
-                self.call_from_thread(lambda: self.notify("xray not found", severity="warning"))
+                self.call_from_thread(lambda: self.notify(self.L['xray_not_found'], severity="warning"))
             elif ok:
                 self.call_from_thread(lambda: self.notify(f"OK  {self.L['config_ok']}"))
             else:
                 lines = out.splitlines()
                 msg = next((l for l in lines if "error" in l.lower()), out[:120])
-                self.call_from_thread(lambda: self.notify(f"ERROR: {msg}", severity="error"))
+                self.call_from_thread(lambda: self.notify(self.L['error_msg'].format(msg=msg), severity="error"))
         threading.Thread(target=_do, daemon=True).start()
 
     def action_tab_dash(self):
@@ -904,40 +904,40 @@ class XrayMonitor(App):
                 t.append(f" {L['xray_mgmt']}\n\n", C["accent"])
 
                 # Status
-                t.append("  STATUS  ", C["accent2"])
+                t.append(f"  {L['status_label']}  ", C["accent2"])
                 if status["running"]:
                     t.append(f"  {L['xray_running']}", C["ok"])
                     if status["pid"]:
-                        t.append(f"  PID: {status['pid']}", C["dim"])
+                        t.append(f"  {L['pid_label']}: {status['pid']}", C["dim"])
                 else:
                     t.append(f"  {L['xray_not_running']}", C["err"])
                 t.append("\n")
 
                 # Version
-                t.append("  VER     ", C["accent2"])
+                t.append(f"  {L['ver_label']}     ", C["accent2"])
                 ver = status.get("version") or "?"
                 t.append(f"  v{ver}", C["accent3"])
                 t.append("\n")
 
                 # Autostart
-                t.append("  BOOT    ", C["accent2"])
+                t.append(f"  {L['boot_label']}    ", C["accent2"])
                 if status["enabled"]:
-                    t.append("  enabled", C["ok"])
+                    t.append(f"  {L['enabled_label']}", C["ok"])
                 else:
-                    t.append("  disabled", C["dim"])
+                    t.append(f"  {L['disabled_label']}", C["dim"])
                 t.append("\n")
 
                 # Binary path
                 xray_bin = find_xray_binary()
                 if xray_bin:
-                    t.append("  PATH    ", C["accent2"])
+                    t.append(f"  {L['path_label']}    ", C["accent2"])
                     t.append(f"  {xray_bin}", C["dim"])
                     t.append("\n")
 
                 # Memory if available
                 if status.get("memory"):
                     from .utils import fmt_b as _fb
-                    t.append("  MEM     ", C["accent2"])
+                    t.append(f"  {L['mem_label']}     ", C["accent2"])
                     t.append(f"  {_fb(status['memory'])}", C["dim"])
                     t.append("\n")
 
@@ -947,10 +947,10 @@ class XrayMonitor(App):
                 t.append("\n  LATEST VERSION CHECK\n\n", C["accent"])
                 latest, url = get_latest_version()
                 if latest:
-                    t.append("  GitHub  ", C["accent2"])
+                    t.append(f"  {L['github_label']}  ", C["accent2"])
                     t.append(f"  v{latest}", C["total"])
                     if ver and latest != ver and ver != "?":
-                        t.append("  [UPDATE AVAILABLE]", C["warn"])
+                        t.append(f"  {L['update_available']}", C["warn"])
                     elif ver == latest:
                         t.append(f"  ({L['xray_update_latest']})", C["ok"])
                     t.append("\n")
@@ -964,16 +964,16 @@ class XrayMonitor(App):
                 # Hotkeys help
                 t.append("\n")
                 t.append("  " + H * 50 + "\n", C["dim"])
-                t.append("\n  HOTKEYS\n\n", C["accent"])
+                t.append(f"\n  {L['hotkeys_title']}\n\n", C["accent"])
                 hotkeys = [
-                    ("S", "Start Xray",            L["xray_started"]),
-                    ("X", "Stop Xray",             L["xray_stopped"]),
-                    ("R", "Restart Xray",          L["xray_restarted"]),
-                    ("U", "Update Xray-core",      L["xray_update_done"]),
-                    ("E", "Toggle autostart",       L["xray_enabled"] + "/" + L["xray_disabled"]),
-                    ("C", "Check config syntax",   L["config_ok"]),
-                    ("e", "Edit config (nano)",    "auto-backup"),
-                    ("B", "Rollback config",       "restore last backup"),
+                    ("S", L["hotkey_start_xray"],            L["xray_started"]),
+                    ("X", L["hotkey_stop_xray"],             L["xray_stopped"]),
+                    ("R", L["hotkey_restart_xray"],          L["xray_restarted"]),
+                    ("U", L["hotkey_update_xray"],      L["xray_update_done"]),
+                    ("E", L["hotkey_toggle_autostart"],       L["xray_enabled"] + "/" + L["xray_disabled"]),
+                    ("C", L["hotkey_check_config"],   L["config_ok"]),
+                    ("e", L["hotkey_edit_config"],    L["auto_backup"]),
+                    ("B", L["hotkey_rollback_config"],       L["restore_backup"]),
                 ]
                 for key, desc, hint in hotkeys:
                     t.append(f"  [{key}]  ", C["accent3"])
@@ -1022,11 +1022,11 @@ class XrayMonitor(App):
         clients   = self.cfg.build_client_urls(server_ip)
 
         t = Text()
-        t.append(" ACCESS KEYS\n\n", C["accent"])
+        t.append(f" {L['access_keys_title']}\n\n", C["accent"])
 
         if not clients:
             t.append(f"  {L['no_clients']}\n", C["dim"])
-            t.append(f"  Path: {self.cfg.path}\n", C["accent2"])
+            t.append(L['path_label'].format(path=self.cfg.path) + "\n", C["accent2"])
         else:
             for idx, cl in enumerate(clients):
                 is_first = idx == 0
@@ -1101,6 +1101,6 @@ class XrayMonitor(App):
                     t.append(line + "\n", C["warn"] if hi else C["dim"])
                 break
         except Exception as e:
-            t.append(f"  error: {e}\n", C["dim"])
+            t.append(self.L["error_lower"].format(err=e) + "\n", C["dim"])
         try: self.query_one(KeysRight).update(t)
         except Exception: pass
