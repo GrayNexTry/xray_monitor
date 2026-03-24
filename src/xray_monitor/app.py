@@ -110,9 +110,19 @@ class XrayMonitor(App):
         self._update_status = ""  # xray update progress
         self._bak_cache: list = []  # cached backup list
         self._bak_cache_t: float = 0  # backup cache timestamp
+        self._mgmt_last_update: float = 0  # Last time mgmt tab was updated
+        self._mgmt_update_interval: float = 2.0  # Update management tab every 2 seconds
 
     @property
     def L(self): return LANG.get(self.lang_key, LANG["ru"])
+
+    def watch_lang_key(self, new_lang: str):
+        """Refresh content when language changes."""
+        try:
+            # Force refresh of management tab on next tick
+            self._mgmt_last_update = 0
+        except Exception:
+            pass
 
     # ── COMPOSE ──────────────────────────────────────────────
 
@@ -223,7 +233,12 @@ class XrayMonitor(App):
         self._draw_log()
         self._draw_conn()
         self._draw_system_tab()
-        self._draw_mgmt_tab()
+        
+        # Update management tab less frequently (every 2 seconds)
+        now = time.time()
+        if now - self._mgmt_last_update > self._mgmt_update_interval:
+            self._mgmt_last_update = now
+            self._draw_mgmt_tab()
 
     # ── OVERVIEW ─────────────────────────────────────────────
 
@@ -878,79 +893,78 @@ class XrayMonitor(App):
     # ── XRAY MANAGEMENT TAB ──────────────────────────────────
 
     def _draw_mgmt_tab(self):
-        t = Text(); L = self.L
+        """Draw management tab. Only updates periodically to reduce flickering."""
+        L = self.L
 
-        t.append(f" {L['xray_mgmt']}\n\n", C["accent"])
-
-        # Get status in background-safe way
-        def _draw_status():
+        # Get status in background and update when ready
+        def _update_status():
             try:
                 status = get_xray_status()
-                t2 = Text()
-                t2.append(f" {L['xray_mgmt']}\n\n", C["accent"])
+                t = Text()
+                t.append(f" {L['xray_mgmt']}\n\n", C["accent"])
 
                 # Status
-                t2.append("  STATUS  ", C["accent2"])
+                t.append("  STATUS  ", C["accent2"])
                 if status["running"]:
-                    t2.append(f"  {L['xray_running']}", C["ok"])
+                    t.append(f"  {L['xray_running']}", C["ok"])
                     if status["pid"]:
-                        t2.append(f"  PID: {status['pid']}", C["dim"])
+                        t.append(f"  PID: {status['pid']}", C["dim"])
                 else:
-                    t2.append(f"  {L['xray_not_running']}", C["err"])
-                t2.append("\n")
+                    t.append(f"  {L['xray_not_running']}", C["err"])
+                t.append("\n")
 
                 # Version
-                t2.append("  VER     ", C["accent2"])
+                t.append("  VER     ", C["accent2"])
                 ver = status.get("version") or "?"
-                t2.append(f"  v{ver}", C["accent3"])
-                t2.append("\n")
+                t.append(f"  v{ver}", C["accent3"])
+                t.append("\n")
 
                 # Autostart
-                t2.append("  BOOT    ", C["accent2"])
+                t.append("  BOOT    ", C["accent2"])
                 if status["enabled"]:
-                    t2.append("  enabled", C["ok"])
+                    t.append("  enabled", C["ok"])
                 else:
-                    t2.append("  disabled", C["dim"])
-                t2.append("\n")
+                    t.append("  disabled", C["dim"])
+                t.append("\n")
 
                 # Binary path
                 xray_bin = find_xray_binary()
                 if xray_bin:
-                    t2.append("  PATH    ", C["accent2"])
-                    t2.append(f"  {xray_bin}", C["dim"])
-                    t2.append("\n")
+                    t.append("  PATH    ", C["accent2"])
+                    t.append(f"  {xray_bin}", C["dim"])
+                    t.append("\n")
 
                 # Memory if available
                 if status.get("memory"):
                     from .utils import fmt_b as _fb
-                    t2.append("  MEM     ", C["accent2"])
-                    t2.append(f"  {_fb(status['memory'])}", C["dim"])
-                    t2.append("\n")
+                    t.append("  MEM     ", C["accent2"])
+                    t.append(f"  {_fb(status['memory'])}", C["dim"])
+                    t.append("\n")
 
                 # Latest version check
-                t2.append("\n")
-                t2.append("  " + H * 50 + "\n", C["dim"])
-                t2.append("\n  LATEST VERSION CHECK\n\n", C["accent"])
+                t.append("\n")
+                t.append("  " + H * 50 + "\n", C["dim"])
+                t.append("\n  LATEST VERSION CHECK\n\n", C["accent"])
                 latest, url = get_latest_version()
                 if latest:
-                    t2.append("  GitHub  ", C["accent2"])
-                    t2.append(f"  v{latest}", C["total"])
+                    t.append("  GitHub  ", C["accent2"])
+                    t.append(f"  v{latest}", C["total"])
                     if ver and latest != ver and ver != "?":
-                        t2.append("  [UPDATE AVAILABLE]", C["warn"])
+                        t.append("  [UPDATE AVAILABLE]", C["warn"])
                     elif ver == latest:
-                        t2.append(f"  ({L['xray_update_latest']})", C["ok"])
-                    t2.append("\n")
+                        t.append(f"  ({L['xray_update_latest']})", C["ok"])
+                    t.append("\n")
                 else:
-                    t2.append("  GitHub   ...\n", C["dim"])
+                    t.append("  GitHub   ...\n", C["dim"])
 
                 # Update progress
                 if self._update_status:
-                    t2.append(f"\n  >> {self._update_status}\n", C["warn"])
+                    t.append(f"\n  >> {self._update_status}\n", C["warn"])
 
                 # Hotkeys help
-                t2.append("\n")
-                t2.append("  " + H * 50 + "\n", C["dim"])
-                t2.append("\n  HOTKEYS\n\n", C["accent"])
+                t.append("\n")
+                t.append("  " + H * 50 + "\n", C["dim"])
+                t.append("\n  HOTKEYS\n\n", C["accent"])
                 hotkeys = [
                     ("S", "Start Xray",            L["xray_started"]),
                     ("X", "Stop Xray",             L["xray_stopped"]),
@@ -962,22 +976,19 @@ class XrayMonitor(App):
                     ("B", "Rollback config",       "restore last backup"),
                 ]
                 for key, desc, hint in hotkeys:
-                    t2.append(f"  [{key}]  ", C["accent3"])
-                    t2.append(f"{desc:<25}", "bold")
-                    t2.append(f" {hint}\n", C["dim"])
+                    t.append(f"  [{key}]  ", C["accent3"])
+                    t.append(f"{desc:<25}", "bold")
+                    t.append(f" {hint}\n", C["dim"])
 
-                self.call_from_thread(lambda: self._set_mgmt(t2))
+                self.call_from_thread(lambda: self._set_mgmt(t))
             except Exception as e:
                 t_err = Text()
                 t_err.append(f" {L['xray_mgmt']}\n\n", C["accent"])
                 t_err.append(f"  Error: {e}\n", C["err"])
                 self.call_from_thread(lambda: self._set_mgmt(t_err))
 
-        # Show loading first
-        t.append("  Loading...\n", C["dim"])
-        try: self.query_one(MgmtW).update(t)
-        except Exception: pass
-        threading.Thread(target=_draw_status, daemon=True).start()
+        # Run in background thread
+        threading.Thread(target=_update_status, daemon=True).start()
 
     def _set_mgmt(self, t):
         try: self.query_one(MgmtW).update(t)
