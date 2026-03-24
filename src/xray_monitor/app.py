@@ -27,10 +27,15 @@ from .utils import (
 from .geoip import GeoIP
 from .config import XrayConfig
 from .stats import XrayStats, SysStats, LogTail
+from .xray_manager import (
+    get_xray_status, get_installed_version, get_latest_version,
+    start_xray, stop_xray, restart_xray, enable_xray, disable_xray,
+    update_xray_async, find_xray_binary,
+)
 from .widgets import (
     CSS, OvBox, SysBox, TrafficW, UsersW, KeysLeft, KeysRight,
     SysCpuRam, SysDisk, SysNet, SysProcs, SysPing,
-    LogW, ConnW, StatusBar, QRModal,
+    LogW, ConnW, StatusBar, QRModal, MgmtW,
 )
 
 
@@ -65,14 +70,21 @@ class XrayMonitor(App):
         Binding("R", "restart_xray", "Рестарт"),
         Binding("e", "edit_config",  "nano"),
         Binding("C", "check_config", "Проверка"),
+        Binding("B", "rollback_config", "Откат", show=True),
+        # Xray management
+        Binding("S", "start_xray",   "Старт",   show=False),
+        Binding("X", "stop_xray",    "Стоп",    show=False),
+        Binding("U", "update_xray",  "Обновить", show=False),
+        Binding("E", "toggle_enable_xray", "Вкл/Выкл", show=False),
+        # Tabs and filter
         Binding("1", "tab_dash",  "", show=False),
         Binding("2", "tab_keys",  "", show=False),
         Binding("3", "tab_sys",   "", show=False),
         Binding("4", "tab_log",   "", show=False),
         Binding("5", "tab_conn",  "", show=False),
+        Binding("6", "tab_mgmt",  "", show=False),
         Binding("f", "toggle_filter", "", show=False),
         Binding("escape", "clear_filter", "", show=False),
-        Binding("B", "rollback_config", "Откат", show=True),
     ]
 
     sort_by     = reactive("downlink")
@@ -94,6 +106,9 @@ class XrayMonitor(App):
         self._last_d  = None
         self._tick_n  = 0
         self._ping_hosts = ["1.1.1.1", "8.8.8.8", "google.com"]
+        self._update_status = ""  # xray update progress
+        self._bak_cache: list = []  # cached backup list
+        self._bak_cache_t: float = 0  # backup cache timestamp
 
     @property
     def L(self): return LANG.get(self.lang_key, LANG["ru"])
@@ -138,6 +153,9 @@ class XrayMonitor(App):
             with TabPane("Подключения", id="tab-conn"):
                 with Container(id="conn-wrap"):
                     yield ConnW("...")
+            with TabPane("Управление", id="tab-mgmt"):
+                with Container(id="mgmt-wrap"):
+                    yield MgmtW("...")
         yield StatusBar("...", id="status")
         yield Footer()
 
@@ -204,6 +222,7 @@ class XrayMonitor(App):
         self._draw_log()
         self._draw_conn()
         self._draw_system_tab()
+        self._draw_mgmt_tab()
 
     # ── OVERVIEW ─────────────────────────────────────────────
 
@@ -652,12 +671,7 @@ class XrayMonitor(App):
     def action_reset_stats(self):
         if not self.xray.stub: return
         try:
-            self.xray.stub.query_stats(pattern="", reset=True)
-            self.xray._prev.clear(); self.xray._prev_t = 0
-            self.xray.up_hist.clear(); self.xray.dn_hist.clear()
-            self.xray.u_speed.clear()
-            self.xray.peak_up = 0.0; self.xray.peak_dn = 0.0
-            self.xray.sess_up = 0.0; self.xray.sess_dn = 0.0
+            self.xray.reset()
             self.notify(self.L["stats_reset"], severity="warning")
         except Exception as e:
             self.notify(f"{self.L['reset_fail']}: {e}", severity="error")
@@ -679,24 +693,83 @@ class XrayMonitor(App):
 
     def action_restart_xray(self):
         def _do():
-            try:
-                r = subprocess.run(["systemctl", "restart", "xray"],
-                                   capture_output=True, text=True, timeout=15)
-                if r.returncode == 0:
-                    self.call_from_thread(lambda: self.notify(
-                        self.L["xray_restarted"], severity="warning"))
-                    time.sleep(2)
-                    self.call_from_thread(self.action_reconnect)
-                else:
-                    err = (r.stderr or r.stdout).strip()[:120]
-                    bak = self._find_last_backup()
-                    hint = "  [B] Rollback config" if bak else ""
-                    self.call_from_thread(lambda: self.notify(
-                        f"{self.L['xray_restart_fail']}: {err}{hint}", severity="error"))
-            except Exception as e:
-                self.call_from_thread(lambda: self.notify(f"systemctl: {e}", severity="error"))
+            ok, msg = restart_xray()
+            if ok:
+                self.call_from_thread(lambda: self.notify(
+                    self.L["xray_restarted"], severity="warning"))
+                time.sleep(2)
+                self.call_from_thread(self.action_reconnect)
+            else:
+                bak = self._find_last_backup()
+                hint = "  [B] Rollback config" if bak else ""
+                self.call_from_thread(lambda: self.notify(
+                    f"{self.L['xray_restart_fail']}: {msg}{hint}", severity="error"))
         self.notify("Restarting xray...", severity="warning")
         threading.Thread(target=_do, daemon=True).start()
+
+    def action_start_xray(self):
+        def _do():
+            ok, msg = start_xray()
+            if ok:
+                self.call_from_thread(lambda: self.notify(
+                    self.L["xray_started"], severity="information"))
+                time.sleep(2)
+                self.call_from_thread(self.action_reconnect)
+            else:
+                self.call_from_thread(lambda: self.notify(
+                    f"{self.L['xray_start_fail']}: {msg}", severity="error"))
+        self.notify("Starting xray...", severity="warning")
+        threading.Thread(target=_do, daemon=True).start()
+
+    def action_stop_xray(self):
+        def _do():
+            ok, msg = stop_xray()
+            if ok:
+                self.call_from_thread(lambda: self.notify(
+                    self.L["xray_stopped"], severity="warning"))
+            else:
+                self.call_from_thread(lambda: self.notify(
+                    f"{self.L['xray_stop_fail']}: {msg}", severity="error"))
+        self.notify("Stopping xray...", severity="warning")
+        threading.Thread(target=_do, daemon=True).start()
+
+    def action_toggle_enable_xray(self):
+        def _do():
+            status = get_xray_status()
+            if status["enabled"]:
+                ok, msg = disable_xray()
+                if ok:
+                    self.call_from_thread(lambda: self.notify(
+                        self.L["xray_disabled"], severity="warning"))
+                else:
+                    self.call_from_thread(lambda: self.notify(msg, severity="error"))
+            else:
+                ok, msg = enable_xray()
+                if ok:
+                    self.call_from_thread(lambda: self.notify(
+                        self.L["xray_enabled"], severity="information"))
+                else:
+                    self.call_from_thread(lambda: self.notify(msg, severity="error"))
+        threading.Thread(target=_do, daemon=True).start()
+
+    def action_update_xray(self):
+        self._update_status = self.L["xray_update_checking"]
+        self.notify(self.L["xray_update_checking"], severity="information")
+
+        def _progress(stage, msg):
+            self._update_status = msg
+            self.call_from_thread(lambda: self._draw_mgmt_tab())
+
+        def _done(ok, msg):
+            self._update_status = msg
+            severity = "information" if ok else "error"
+            self.call_from_thread(lambda: self.notify(msg, severity=severity))
+            self.call_from_thread(lambda: self._draw_mgmt_tab())
+            if ok:
+                time.sleep(2)
+                self.call_from_thread(self.action_reconnect)
+
+        update_xray_async(callback=_progress, done_callback=_done)
 
     def _backup_config(self) -> str:
         path = self.cfg.path
@@ -704,18 +777,28 @@ class XrayMonitor(App):
         bak  = f"{path}.bak_{ts}"
         try:
             shutil.copy2(path, bak)
-            baks = sorted(glob.glob(f"{path}.bak_*"))
+            self._bak_cache_t = 0  # Invalidate cache
+            baks = self._get_backups()
             for old in baks[:-10]:
                 try: os.remove(old)
                 except Exception: pass
+            self._bak_cache_t = 0  # Invalidate again after cleanup
             return bak
         except Exception as e:
             self.notify(f"Backup failed: {e}", severity="warning")
             return ""
 
     def _find_last_backup(self) -> str:
-        baks = sorted(glob.glob(f"{self.cfg.path}.bak_*"))
+        baks = self._get_backups()
         return baks[-1] if baks else ""
+
+    def _get_backups(self) -> list:
+        """Get backups with 30s cache."""
+        now = time.time()
+        if now - self._bak_cache_t > 30:
+            self._bak_cache = sorted(glob.glob(f"{self.cfg.path}.bak_*"))
+            self._bak_cache_t = now
+        return self._bak_cache
 
     def action_edit_config(self):
         path = self.cfg.path
@@ -783,6 +866,120 @@ class XrayMonitor(App):
 
     def action_tab_conn(self):
         try: self.query_one(TabbedContent).active = "tab-conn"
+        except Exception: pass
+
+    def action_tab_mgmt(self):
+        try:
+            self.query_one(TabbedContent).active = "tab-mgmt"
+            self._draw_mgmt_tab()
+        except Exception: pass
+
+    # ── XRAY MANAGEMENT TAB ──────────────────────────────────
+
+    def _draw_mgmt_tab(self):
+        t = Text(); L = self.L
+
+        t.append(f" {L['xray_mgmt']}\n\n", C["accent"])
+
+        # Get status in background-safe way
+        def _draw_status():
+            try:
+                status = get_xray_status()
+                t2 = Text()
+                t2.append(f" {L['xray_mgmt']}\n\n", C["accent"])
+
+                # Status
+                t2.append("  STATUS  ", C["accent2"])
+                if status["running"]:
+                    t2.append(f"  {L['xray_running']}", C["ok"])
+                    if status["pid"]:
+                        t2.append(f"  PID: {status['pid']}", C["dim"])
+                else:
+                    t2.append(f"  {L['xray_not_running']}", C["err"])
+                t2.append("\n")
+
+                # Version
+                t2.append("  VER     ", C["accent2"])
+                ver = status.get("version") or "?"
+                t2.append(f"  v{ver}", C["accent3"])
+                t2.append("\n")
+
+                # Autostart
+                t2.append("  BOOT    ", C["accent2"])
+                if status["enabled"]:
+                    t2.append("  enabled", C["ok"])
+                else:
+                    t2.append("  disabled", C["dim"])
+                t2.append("\n")
+
+                # Binary path
+                xray_bin = find_xray_binary()
+                if xray_bin:
+                    t2.append("  PATH    ", C["accent2"])
+                    t2.append(f"  {xray_bin}", C["dim"])
+                    t2.append("\n")
+
+                # Memory if available
+                if status.get("memory"):
+                    from .utils import fmt_b as _fb
+                    t2.append("  MEM     ", C["accent2"])
+                    t2.append(f"  {_fb(status['memory'])}", C["dim"])
+                    t2.append("\n")
+
+                # Latest version check
+                t2.append("\n")
+                t2.append("  " + H * 50 + "\n", C["dim"])
+                t2.append("\n  LATEST VERSION CHECK\n\n", C["accent"])
+                latest, url = get_latest_version()
+                if latest:
+                    t2.append("  GitHub  ", C["accent2"])
+                    t2.append(f"  v{latest}", C["total"])
+                    if ver and latest != ver and ver != "?":
+                        t2.append("  [UPDATE AVAILABLE]", C["warn"])
+                    elif ver == latest:
+                        t2.append(f"  ({L['xray_update_latest']})", C["ok"])
+                    t2.append("\n")
+                else:
+                    t2.append("  GitHub   ...\n", C["dim"])
+
+                # Update progress
+                if self._update_status:
+                    t2.append(f"\n  >> {self._update_status}\n", C["warn"])
+
+                # Hotkeys help
+                t2.append("\n")
+                t2.append("  " + H * 50 + "\n", C["dim"])
+                t2.append("\n  HOTKEYS\n\n", C["accent"])
+                hotkeys = [
+                    ("S", "Start Xray",            L["xray_started"]),
+                    ("X", "Stop Xray",             L["xray_stopped"]),
+                    ("R", "Restart Xray",          L["xray_restarted"]),
+                    ("U", "Update Xray-core",      L["xray_update_done"]),
+                    ("E", "Toggle autostart",       L["xray_enabled"] + "/" + L["xray_disabled"]),
+                    ("C", "Check config syntax",   L["config_ok"]),
+                    ("e", "Edit config (nano)",    "auto-backup"),
+                    ("B", "Rollback config",       "restore last backup"),
+                ]
+                for key, desc, hint in hotkeys:
+                    t2.append(f"  [{key}]  ", C["accent3"])
+                    t2.append(f"{desc:<25}", "bold")
+                    t2.append(f" {hint}\n", C["dim"])
+
+                self.call_from_thread(lambda: self._set_mgmt(t2))
+            except Exception as e:
+                t_err = Text()
+                t_err.append(f" {L['xray_mgmt']}\n\n", C["accent"])
+                t_err.append(f"  Error: {e}\n", C["err"])
+                self.call_from_thread(lambda: self._set_mgmt(t_err))
+
+        # Show loading first
+        t.append("  Loading...\n", C["dim"])
+        try: self.query_one(MgmtW).update(t)
+        except Exception: pass
+        threading.Thread(target=_draw_status, daemon=True).start()
+
+    def _set_mgmt(self, t):
+        try: self.query_one(MgmtW).update(t)
         except Exception: pass
 
     # ── KEYS ─────────────────────────────────────────────────
@@ -863,7 +1060,7 @@ class XrayMonitor(App):
             t.append("\n  [Q] QR first client\n", C["dim"])
         t.append("  [e] Open config in nano (auto-backup)\n", C["dim"])
         t.append("  [C] Check syntax  [B] Rollback to backup\n", C["dim"])
-        baks = sorted(glob.glob(f"{self.cfg.path}.bak_*"))
+        baks = self._get_backups()
         if baks:
             last = os.path.basename(baks[-1])
             t.append(f"  Last backup: {last}  ({len(baks)} total)\n", C["dim"])

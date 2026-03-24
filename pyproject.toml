@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "xray-monitor"
-version = "10.0.0"
+version = "10.1.0"
 description = "TUI monitor for personal Xray VPN server"
 requires-python = ">=3.9"
 dependencies = [

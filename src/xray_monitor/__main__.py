@@ -3,11 +3,13 @@
 xray-monitor v10 — TUI for personal Xray VPN server
 pip install textual grpcio protobuf psutil qrcode
 Usage: xray-monitor [--server 127.0.0.1:10085] [--config /usr/local/etc/xray/config.json] [--interval 2] [--lang ru]
-Tabs: 1=Dashboard  2=Keys  3=System  4=Log  5=Connections
+Tabs: 1=Dashboard  2=Keys  3=System  4=Log  5=Connections  6=Management
 """
 
 import sys
 import argparse
+
+from . import __version__
 
 
 def main():
@@ -23,7 +25,7 @@ def main():
     from .app import XrayMonitor
 
     p = argparse.ArgumentParser(
-        description="xray-monitor v10",
+        description=f"xray-monitor v{__version__}",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Keys:
@@ -31,7 +33,9 @@ Keys:
   z  — reset counters  p — pause           l — language
   Q  — QR code         e — nano config     R — restart xray
   C  — check config    B — rollback config
-  1-5 — tabs           f — filter users
+  S  — start xray      X — stop xray       U — update xray-core
+  E  — toggle autostart
+  1-6 — tabs           f — filter users
 
 pip install textual grpcio protobuf psutil qrcode
 """)
@@ -42,6 +46,7 @@ pip install textual grpcio protobuf psutil qrcode
     p.add_argument("--lang",          choices=["en", "ru"], default="ru")
     p.add_argument("--no-geo",        action="store_true")
     p.add_argument("--ping",          nargs="*", default=None)
+    p.add_argument("--version",       action="version", version=f"xray-monitor v{__version__}")
     a = p.parse_args()
 
     app = XrayMonitor(server=a.server, interval=a.interval,

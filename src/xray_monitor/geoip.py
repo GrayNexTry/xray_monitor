@@ -11,6 +11,10 @@ from urllib.request import urlopen
 _CACHE_MAX = 1500
 _CACHE_TTL = 3600  # 1 hour
 _PENDING_TIMEOUT = 30  # seconds before retrying a pending lookup
+_MAX_CONCURRENT = 5    # max concurrent fetch threads
+
+_FAIL = {"cc": "??", "country": "?", "city": "", "isp": "",
+         "asn": "", "asname": "", "hosting": False}
 
 
 def _flag(cc: str) -> str:
@@ -23,14 +27,16 @@ class GeoIP:
         self._cache: OrderedDict = OrderedDict()  # ip -> (timestamp, data)
         self._pending: dict = {}  # ip -> timestamp (when fetch started)
         self._lock = threading.Lock()
+        self._semaphore = threading.Semaphore(_MAX_CONCURRENT)
 
     def lookup(self, ip: str) -> Optional[dict]:
         clean = ip.strip("[]")
         try:
             a = ipaddress.ip_address(clean)
             if a.is_private or a.is_loopback:
-                return {"cc": "LO", "country": "Local", "city": "", "isp": ""}
-        except Exception:
+                return {"cc": "LO", "country": "Local", "city": "", "isp": "",
+                        "asn": "", "asname": "", "hosting": False}
+        except (ValueError, TypeError):
             pass
 
         now = time.monotonic()
@@ -51,14 +57,19 @@ class GeoIP:
                 # Timed out, allow re-fetch
                 del self._pending[clean]
 
+            # Mark as pending INSIDE the lock to prevent duplicate fetches
             self._pending[clean] = now
 
         threading.Thread(target=self._fetch, args=(clean,), daemon=True).start()
         return None
 
     def _fetch(self, ip: str):
-        _FAIL = {"cc": "??", "country": "?", "city": "", "isp": "",
-                 "asn": "", "asname": "", "hosting": False}
+        # Rate limit concurrent fetches
+        if not self._semaphore.acquire(timeout=5):
+            with self._lock:
+                self._pending.pop(ip, None)
+            return
+
         try:
             raw = urlopen(
                 f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,city,isp,as,asname,hosting",
@@ -75,9 +86,11 @@ class GeoIP:
                     "hosting": r.get("hosting", False),
                 }
             else:
-                res = _FAIL
+                res = dict(_FAIL)
         except Exception:
-            res = _FAIL
+            res = dict(_FAIL)
+        finally:
+            self._semaphore.release()
 
         now = time.monotonic()
         with self._lock:

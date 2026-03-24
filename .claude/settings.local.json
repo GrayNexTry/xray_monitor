@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /c/Users/wwwne/OneDrive/Документы/xray_monitor -not -path */.git/* -not -path */.venv/* -type f)",
+      "Bash(python -c \"import ast; import sys; errors=[]; [errors.append\\(f\\) if not ast.parse\\(open\\(f\\).read\\(\\)\\) else None for f in [''src/xray_monitor/__init__.py'',''src/xray_monitor/__main__.py'',''src/xray_monitor/app.py'',''src/xray_monitor/config.py'',''src/xray_monitor/constants.py'',''src/xray_monitor/crypto.py'',''src/xray_monitor/geoip.py'',''src/xray_monitor/grpc_client.py'',''src/xray_monitor/proto.py'',''src/xray_monitor/stats.py'',''src/xray_monitor/utils.py'',''src/xray_monitor/widgets.py'',''src/xray_monitor/xray_manager.py'']]; print\\(''All files OK'' if not errors else errors\\)\")",
+      "Bash(python3 -c \"import ast; [print\\(f''OK: {f}''\\) for f in [''src/xray_monitor/__init__.py'',''src/xray_monitor/__main__.py'',''src/xray_monitor/app.py'',''src/xray_monitor/config.py'',''src/xray_monitor/constants.py'',''src/xray_monitor/crypto.py'',''src/xray_monitor/geoip.py'',''src/xray_monitor/grpc_client.py'',''src/xray_monitor/proto.py'',''src/xray_monitor/stats.py'',''src/xray_monitor/utils.py'',''src/xray_monitor/widgets.py'',''src/xray_monitor/xray_manager.py''] if ast.parse\\(open\\(f\\).read\\(\\)\\)]\")",
+      "Bash(for f:*)",
+      "Bash(do /c/Users/wwwne/OneDrive/Документы/xray_monitor/.venv/Scripts/python.exe -c \"import ast; ast.parse\\(open\\(''$f''\\).read\\(\\)\\); print\\(''OK: $f''\\)\")",
+      "Bash(echo \"FAIL: $f\")",
+      "Bash(done)",
+      "Bash(.venv/Scripts/python.exe -c \":*)"
+    ]
+  }
+}

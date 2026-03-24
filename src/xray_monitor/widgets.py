@@ -47,11 +47,13 @@ SysNet     { height: 1fr; }
 SysProcs   { height: 1fr; }
 SysPing    { height: 1fr; }
 
-/* Log / Conn */
+/* Log / Conn / Mgmt */
 LogW       { height: 1fr; padding: 0 1; border: tall $primary; overflow-y: auto; }
 ConnW      { height: 1fr; padding: 0 1; border: tall $primary; overflow-y: auto; }
+MgmtW      { height: 1fr; padding: 0 1; border: tall $accent; overflow-y: auto; }
 #log-wrap  { height: 1fr; }
 #conn-wrap { height: 1fr; }
+#mgmt-wrap { height: 1fr; }
 
 /* QR modal */
 QRModal    { align: center middle; }
@@ -81,6 +83,7 @@ class SysProcs(Static):  pass
 class SysPing(Static):   pass
 class LogW(Static):      pass
 class ConnW(Static):     pass
+class MgmtW(Static):     pass
 class StatusBar(Static): pass
 
 

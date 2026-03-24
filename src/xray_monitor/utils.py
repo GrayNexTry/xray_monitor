@@ -1,22 +1,30 @@
 """Formatting helpers, clipboard, QR code."""
+from __future__ import annotations
 
 import os
 import stat
 import subprocess
 from datetime import datetime
+from typing import Any, TYPE_CHECKING
 
 from .constants import C
 
+if TYPE_CHECKING:
+    import qrcode as _qrcode_type
+    import psutil as _psutil_type
+
 try:
-    import qrcode as _qrcode
+    import qrcode as _qrcode  # type: ignore[import-untyped]
     HAS_QR = True
 except ImportError:
+    _qrcode: Any = None
     HAS_QR = False
 
 try:
     import psutil
     HAS_PSUTIL = True
 except ImportError:
+    psutil: Any = None
     HAS_PSUTIL = False
 
 

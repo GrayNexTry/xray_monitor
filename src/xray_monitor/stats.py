@@ -1,4 +1,5 @@
 """Xray stats collector, system stats, log tail."""
+from __future__ import annotations
 
 import os
 import re
@@ -6,23 +7,34 @@ import time
 import socket
 import threading
 from collections import deque, OrderedDict
-from typing import Optional
+from typing import Any, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import grpc as _grpc_type
+    import psutil as _psutil_type
 
 try:
-    import grpc
+    import grpc  # type: ignore[import-untyped]
     _HAS_GRPC = True
 except ImportError:
-    grpc = None
+    grpc: Any = None
     _HAS_GRPC = False
 
 from .grpc_client import XrayGRPC
 from .utils import HAS_PSUTIL
 
-if HAS_PSUTIL:
-    import psutil
+try:
+    import psutil  # type: ignore[import-untyped]
+except ImportError:
+    psutil: Any = None
 
-_USER_HIST_MAX = 200  # max tracked users (LRU)
+_USER_HIST_MAX = 200   # max tracked users (LRU)
 _TOP_BLOCKED_MAX = 500
+_PRUNE_INTERVAL = 10   # prune stale entries every N fetches
+
+# Pre-compiled regex for block stats parsing
+_RE_TRANSPORT = re.compile(r"(?:tcp|udp):([^:,\s\[]+):(\d+)")
+_RE_IPV4 = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 
 
 class UserHist:
@@ -54,15 +66,16 @@ class ConnEvent:
 
 
 class XrayStats:
-    def __init__(self, server):
+    def __init__(self, server: str):
         self.server    = server
-        self.channel   = None
-        self.stub      = None
+        self.channel: Any = None
+        self.stub: Optional[XrayGRPC] = None
         self.connected = False
         self.error     = ""
         self._lock     = threading.Lock()
         self._prev: dict   = {}
         self._prev_t: float = 0
+        self._fetch_n: int = 0
         self.up_hist = deque(maxlen=90)
         self.dn_hist = deque(maxlen=90)
         self.u_speed: dict = {}        # email -> {su, sd}
@@ -75,8 +88,8 @@ class XrayStats:
         self.conn_events: deque = deque(maxlen=200)
         self._prev_ips: dict = {}
 
-    def connect(self):
-        if not _HAS_GRPC:
+    def connect(self) -> None:
+        if not _HAS_GRPC or grpc is None:
             self.connected = False
             self.error = "grpc not installed"
             return
@@ -106,6 +119,7 @@ class XrayStats:
         self.connected = False
 
     def _track(self, online_set, user_ips, geo):
+        """Track connect/disconnect events. Must be called under self._lock."""
         cur = set(online_set)
         for u in cur - self._prev_online:
             self.conn_events.append(ConnEvent("connect", u))
@@ -116,7 +130,7 @@ class XrayStats:
         # Prune _prev_ips for users no longer tracked
         stale = set(self._prev_ips.keys()) - set(user_ips.keys()) - cur
         for email in stale:
-            del self._prev_ips[email]
+            self._prev_ips.pop(email, None)
 
         for email, ips in user_ips.items():
             cp = set(ips.keys()); pp = self._prev_ips.get(email, set())
@@ -128,7 +142,7 @@ class XrayStats:
             self._prev_ips[email] = cp
 
     def _update_user_hist(self, em, su, sd):
-        """Update user history with LRU eviction."""
+        """Update user history with LRU eviction. Must be called under self._lock."""
         if em in self.u_hist:
             self.u_hist.move_to_end(em)
         elif len(self.u_hist) >= _USER_HIST_MAX:
@@ -137,51 +151,69 @@ class XrayStats:
             self.u_hist[em] = UserHist()
         self.u_hist[em].add(su, sd)
 
-    def _prune_speed(self, active_users: set):
-        """Remove speed entries for users no longer active."""
-        stale = set(self.u_speed.keys()) - active_users
-        for em in stale:
-            del self.u_speed[em]
+    def _prune_stale(self, active_users: set):
+        """Remove speed/hist entries for users no longer active. Under self._lock."""
+        # Prune speed
+        stale_speed = set(self.u_speed.keys()) - active_users
+        for em in stale_speed:
+            self.u_speed.pop(em, None)
+        # Prune hist for long-gone users (keep last _USER_HIST_MAX)
+        stale_hist = set(self.u_hist.keys()) - active_users
+        if len(stale_hist) > _USER_HIST_MAX // 2:
+            for em in list(stale_hist)[:len(stale_hist) - _USER_HIST_MAX // 4]:
+                self.u_hist.pop(em, None)
 
     def reset(self):
         """Thread-safe reset of all counters."""
         with self._lock:
             if self.stub:
-                self.stub.query_stats(pattern="", reset=True)
+                try:
+                    self.stub.query_stats(pattern="", reset=True)
+                except Exception:
+                    pass
             self._prev.clear()
             self._prev_t = 0
+            self._fetch_n = 0
             self.up_hist.clear()
             self.dn_hist.clear()
             self.u_speed.clear()
+            self.u_hist.clear()
             self.peak_up = 0.0
             self.peak_dn = 0.0
             self.sess_up = 0.0
             self.sess_dn = 0.0
 
-    def fetch(self, geo=None) -> dict:
+    def fetch(self, geo: Any = None) -> dict:
         if not self.stub: self.connect()
-        if not self.connected:
+        stub = self.stub
+        if not self.connected or stub is None:
             return {"error": self.error or "Not connected"}
-        R = {"time": time.time(), "inbounds": {}, "outbounds": {}, "users": {},
+        R: dict = {"time": time.time(), "inbounds": {}, "outbounds": {}, "users": {},
              "sys": {}, "online_users": [], "user_ips": {},
              "total_up": 0, "total_down": 0, "speed_up": 0.0, "speed_down": 0.0}
         try:
             with self._lock:
+                self._fetch_n += 1
                 cur: dict = {}
-                for s in self.stub.query_stats():
+                # Category lookup — avoid creating dict each iteration
+                _cat_map = {"inbound": "inbounds", "outbound": "outbounds", "user": "users"}
+                for s in stub.query_stats():
                     n, val = s.get("name", ""), s.get("value", 0)
                     if not n: continue
                     cur[n] = val
                     parts = n.split(">>>")
                     if len(parts) == 4:
                         cat, tag, _, dir_ = parts
-                        bk = R.get({"inbound": "inbounds", "outbound": "outbounds", "user": "users"}.get(cat))
-                        if bk is not None:
+                        bucket_key = _cat_map.get(cat)
+                        if bucket_key:
+                            bk = R[bucket_key]
                             if tag not in bk: bk[tag] = {"uplink": 0, "downlink": 0}
                             bk[tag][dir_] = val
+
                 for ib in R["inbounds"].values():
                     R["total_up"]   += ib.get("uplink",   0)
-                    R["total_down"] += ib.get("downlink",  0)
+                    R["total_down"] += ib.get("downlink", 0)
+
                 now = time.time()
                 dt = now - self._prev_t if self._prev_t > 0 else 0
                 if dt > 0:
@@ -203,28 +235,41 @@ class XrayStats:
                         sd = max(0, (ud["downlink"] - pd) / dt)
                         self.u_speed[em] = {"su": su, "sd": sd}
                         self._update_user_hist(em, su, sd)
-                    # Prune stale speed entries every 10 fetches
-                    self._prune_speed(active_users)
+                    # Prune stale entries periodically
+                    if self._fetch_n % _PRUNE_INTERVAL == 0:
+                        self._prune_stale(active_users)
+
                 self.up_hist.append(R["speed_up"])
                 self.dn_hist.append(R["speed_down"])
                 self._prev = cur
                 self._prev_t = now
-            try: R["sys"] = self.stub.sys_stats()
+
+            # Outside main lock — these are independent gRPC calls
+            try: R["sys"] = stub.sys_stats()
             except Exception: pass
+
             try:
-                R["online_users"] = self.stub.all_online_users()
+                R["online_users"] = stub.all_online_users()
                 for em in R["users"]:
                     try:
-                        ips = self.stub.online_ips(em)
+                        ips = stub.online_ips(em)
                         if ips: R["user_ips"][em] = ips
                     except Exception: pass
-                if geo: self._track(R["online_users"], R["user_ips"], geo)
+                # Track under lock since _track modifies shared state
+                if geo:
+                    with self._lock:
+                        self._track(R["online_users"], R["user_ips"], geo)
             except Exception: pass
+
         except Exception as e:
-            # Handle both grpc errors and general errors
             err_msg = str(e)
-            if _HAS_GRPC and isinstance(e, grpc.RpcError):
-                err_msg = f"gRPC: {e.code().name}"
+            # Safe grpc error check — only access grpc.RpcError if grpc is available
+            if _HAS_GRPC and grpc is not None:
+                try:
+                    if isinstance(e, grpc.RpcError):
+                        err_msg = f"gRPC: {e.code().name}"
+                except Exception:
+                    pass
             self.connected = False
             self.error = err_msg
             R["error"] = self.error
@@ -241,6 +286,7 @@ class LogTail:
         self._block_window  = deque(maxlen=600)
         self._last_pos      = 0
         self._last_size     = 0
+        self._last_inode    = 0  # Track inode for log rotation detection
         self._top_blocked: OrderedDict = OrderedDict()
 
     def read(self) -> list:
@@ -255,10 +301,22 @@ class LogTail:
     def update_block_stats(self):
         try:
             if not os.path.exists(self.path): return
+
+            # Detect log rotation via inode change
+            try:
+                st = os.stat(self.path)
+                current_inode = st.st_ino
+                if self._last_inode and current_inode != self._last_inode:
+                    # Log was rotated — reset position
+                    self._last_pos = 0
+                self._last_inode = current_inode
+            except (AttributeError, OSError):
+                pass  # st_ino not available on all platforms
+
             with open(self.path, "rb") as f:
                 f.seek(0, 2); sz = f.tell()
                 if sz < self._last_size:
-                    self._last_pos = 0
+                    self._last_pos = 0  # File truncated
                 self._last_size = sz
                 is_first_scan = (self._last_pos == 0)
                 if is_first_scan:
@@ -274,22 +332,22 @@ class LogTail:
                     self._top_blocked.clear()
 
             now = time.time()
-            new_blocks = []
+            block_count = 0
             for line in chunk.splitlines():
                 ll = line.lower()
                 if "-> block" not in ll and "->block" not in ll:
                     continue
-                new_blocks.append(now)
+                block_count += 1
                 after_accepted = line
                 acc_idx = ll.find(" accepted ")
                 if acc_idx >= 0:
                     after_accepted = line[acc_idx + 10:]
-                m = re.search(r"(?:tcp|udp):([^:,\s\[]+):(\d+)", after_accepted)
+                m = _RE_TRANSPORT.search(after_accepted)
                 if not m:
                     continue
                 target = m.group(1).lower()
                 port   = m.group(2)
-                is_ip  = bool(re.match(r"^\d+\.\d+\.\d+\.\d+$", target))
+                is_ip  = bool(_RE_IPV4.match(target))
                 if is_ip:
                     if (target.startswith("224.") or target.startswith("239.")
                             or target == "255.255.255.255"):
@@ -304,9 +362,10 @@ class LogTail:
                 self._top_blocked.popitem(last=False)
 
             with self._lock:
-                self._block_total   += len(new_blocks)
-                self._block_session += len(new_blocks)
-                self._block_window.extend(new_blocks)
+                self._block_total   += block_count
+                self._block_session += block_count
+                # Extend window with timestamps for rate calc
+                self._block_window.extend([now] * block_count)
         except Exception:
             pass
 
@@ -315,16 +374,21 @@ class LogTail:
             if not self._block_window: return 0.0
             now = time.time()
             cutoff = now - 300
-            # Single pass count — no list copy
-            count = sum(1 for t in self._block_window if t > cutoff)
+            # Single pass — count and find oldest in one go
+            count = 0
+            oldest = now
+            for t in self._block_window:
+                if t > cutoff:
+                    count += 1
+                    if t < oldest:
+                        oldest = t
             if count == 0: return 0.0
-            # Approximate elapsed from oldest relevant entry
-            oldest = next((t for t in self._block_window if t > cutoff), now)
             elapsed = now - oldest
             return count / max(elapsed / 60.0, 0.017)
 
     def top_blocked(self, n: int = 5) -> list:
-        return sorted(self._top_blocked.items(), key=lambda x: x[1], reverse=True)[:n]
+        with self._lock:
+            return sorted(self._top_blocked.items(), key=lambda x: x[1], reverse=True)[:n]
 
 
 class SysStats:
@@ -337,6 +401,7 @@ class SysStats:
         self._ping_t: dict = {}
         self._xray_pid: Optional[int] = None
         self._xray_pid_check_t: float = 0
+        self._tcp_cache: tuple = (0, 0, 0.0)  # (est, listen, timestamp)
 
     def _find_xray_pid(self) -> Optional[int]:
         """Find xray PID — cached for 30 seconds."""
@@ -392,13 +457,18 @@ class SysStats:
             self._net_prev = net
             self._net_t = now
 
-            try:
-                conns = psutil.net_connections(kind="tcp")
-                d["tcp_est"]    = sum(1 for c in conns if c.status == "ESTABLISHED")
-                d["tcp_listen"] = sum(1 for c in conns if c.status == "LISTEN")
-            except (psutil.AccessDenied, OSError):
-                d["tcp_est"] = 0
-                d["tcp_listen"] = 0
+            # TCP connections — cache for 10 seconds (expensive call)
+            est, listen, tcp_ts = self._tcp_cache
+            if now - tcp_ts > 10:
+                try:
+                    conns = psutil.net_connections(kind="tcp")
+                    est    = sum(1 for c in conns if c.status == "ESTABLISHED")
+                    listen = sum(1 for c in conns if c.status == "LISTEN")
+                    self._tcp_cache = (est, listen, now)
+                except (psutil.AccessDenied, OSError):
+                    est, listen = 0, 0
+            d["tcp_est"]    = est
+            d["tcp_listen"] = listen
 
             d["procs"] = len(psutil.pids())
 
@@ -419,18 +489,27 @@ class SysStats:
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     self._xray_pid = None
 
-            # Top processes by memory — single pass, collect top 12 only
+            # Top processes by memory — use heap for efficiency with large proc lists
+            import heapq
+            top_n = 12
             procs = []
             for proc in psutil.process_iter(["pid", "name", "cpu_percent", "memory_info"]):
                 try:
                     mi = proc.info["memory_info"]
                     mem = mi.rss if mi else 0
                     cpu_p = proc.info["cpu_percent"] or 0.0
-                    procs.append((proc.info["pid"], proc.info["name"] or "?", cpu_p, mem))
+                    entry = (mem, proc.info["pid"], proc.info["name"] or "?", cpu_p)
+                    if len(procs) < top_n:
+                        heapq.heappush(procs, entry)
+                    elif mem > procs[0][0]:
+                        heapq.heapreplace(procs, entry)
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
-            procs.sort(key=lambda x: x[3], reverse=True)
-            d["top_procs"] = procs[:12]
+            # Convert to expected format: (pid, name, cpu, mem)
+            d["top_procs"] = sorted(
+                [(pid, name, cpu_p, mem) for mem, pid, name, cpu_p in procs],
+                key=lambda x: x[3], reverse=True
+            )
         except Exception as e:
             d["error"] = str(e)
         with self._lock:
