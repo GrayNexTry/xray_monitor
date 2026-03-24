@@ -83,28 +83,40 @@ class XrayStats:
 
     # ── Внутренние вспомогательные методы ────────────────────
 
-    def _track(self, online_set: list, user_ips: dict, geo: Any) -> None:
-        """Отслеживает события подключения/отключения. Вызывается под self._lock."""
+    def _track(self, online_set: list, user_ips: dict, geo: Any,
+               log_ips: dict | None = None) -> None:
+        """Отслеживает события подключения/отключения. Вызывается под self._lock.
+
+        user_ips  — IP от gRPC GetStatsOnlineIpList (текущая сессия)
+        log_ips   — IP из access.log (более полные, за последние 24 ч)
+        """
         cur = set(online_set)
 
-        # Обрабатываем изменения IP-адресов (более информативны — содержат IP)
-        stale = set(self._prev_ips.keys()) - set(user_ips.keys()) - cur
+        # Объединяем IP из gRPC и из лога
+        merged_ips: dict = {}
+        for email, ips in (log_ips or {}).items():
+            merged_ips[email] = set(ips.keys())
+        for email, ips in user_ips.items():
+            if email not in merged_ips:
+                merged_ips[email] = set()
+            merged_ips[email].update(ips.keys())
+
+        stale = set(self._prev_ips.keys()) - set(merged_ips.keys()) - cur
         for email in stale:
             self._prev_ips.pop(email, None)
 
         users_with_ip_events: set = set()
-        for email, ips in user_ips.items():
-            cp = set(ips.keys()); pp = self._prev_ips.get(email, set())
-            for ip in cp - pp:
-                # Geo не сохраняем здесь — будет подтягиваться при рендере из кэша
+        for email, ip_set in merged_ips.items():
+            pp = self._prev_ips.get(email, set())
+            for ip in ip_set - pp:
                 self.conn_events.append(ConnEvent("connect", email, ip))
                 users_with_ip_events.add(email)
-            for ip in pp - cp:
+            for ip in pp - ip_set:
                 self.conn_events.append(ConnEvent("disconnect", email, ip))
                 users_with_ip_events.add(email)
-            self._prev_ips[email] = cp
+            self._prev_ips[email] = ip_set
 
-        # Для пользователей без IP (протокол не раскрывает адрес) создаём событие без IP
+        # Для пользователей без IP создаём событие без адреса
         for u in cur - self._prev_online:
             if u not in users_with_ip_events:
                 self.conn_events.append(ConnEvent("connect", u))
@@ -153,7 +165,7 @@ class XrayStats:
             self.sess_up  = 0.0
             self.sess_dn  = 0.0
 
-    def fetch(self, geo: Any = None) -> dict:
+    def fetch(self, geo: Any = None, log_ips: dict | None = None) -> dict:
         if not self.stub:
             self.connect()
         stub = self.stub
@@ -230,7 +242,8 @@ class XrayStats:
                         pass
                 if geo:
                     with self._lock:
-                        self._track(R["online_users"], R["user_ips"], geo)
+                        self._track(R["online_users"], R["user_ips"], geo,
+                                    log_ips=log_ips)
             except Exception:
                 pass
 

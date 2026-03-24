@@ -12,6 +12,15 @@ _TOP_BLOCKED_MAX = 500
 _RE_TRANSPORT    = re.compile(r"(?:tcp|udp):([^:,\s\[]+):(\d+)")
 _RE_IPV4         = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 
+# Парсинг клиентских подключений из access.log
+# Формат: "2026/01/01 12:00:00 1.2.3.4:54321 accepted tcp:... email: user@tag"
+# или IPv6: "[::1]:54321 accepted ..."
+_RE_SRC_IP  = re.compile(
+    r"(?:^|\s)(\d{1,3}(?:\.\d{1,3}){3}):\d+\s+accepted"
+    r"|(?:^|\s)\[([0-9a-fA-F:]+)\]:\d+\s+accepted"
+)
+_RE_EMAIL   = re.compile(r"email:\s*(\S+)")
+
 
 class LogTail:
     def __init__(self, path: str = "/var/log/xray/access.log", n: int = 80) -> None:
@@ -25,6 +34,8 @@ class LogTail:
         self._last_size:     int  = 0
         self._last_inode:    int  = 0
         self._top_blocked: OrderedDict = OrderedDict()
+        # IP-адреса клиентов из access.log: email -> {ip: last_seen_ts}
+        self.client_ips: dict = {}
 
     def read(self) -> list:
         try:
@@ -68,8 +79,22 @@ class LogTail:
 
             now = time.time()
             block_count = 0
+            new_client_ips: dict = {}
             for line in chunk.splitlines():
                 ll = line.lower()
+
+                # ── Парсим IP клиента из строк "accepted" ────────
+                if "accepted" in ll:
+                    m_ip    = _RE_SRC_IP.search(line)
+                    m_email = _RE_EMAIL.search(line)
+                    if m_ip and m_email:
+                        ip    = m_ip.group(1) or m_ip.group(2) or ""
+                        email = m_email.group(1).strip()
+                        if ip and email:
+                            if email not in new_client_ips:
+                                new_client_ips[email] = {}
+                            new_client_ips[email][ip] = now
+
                 if "-> block" not in ll and "->block" not in ll:
                     continue
                 block_count += 1
@@ -99,6 +124,19 @@ class LogTail:
                 self._block_total   += block_count
                 self._block_session += block_count
                 self._block_window.extend([now] * block_count)
+                # Обновляем client_ips, убираем записи старше 24 часов
+                for email, ips in new_client_ips.items():
+                    if email not in self.client_ips:
+                        self.client_ips[email] = {}
+                    self.client_ips[email].update(ips)
+                cutoff = now - 86400
+                for email in list(self.client_ips):
+                    self.client_ips[email] = {
+                        ip: ts for ip, ts in self.client_ips[email].items()
+                        if ts > cutoff
+                    }
+                    if not self.client_ips[email]:
+                        del self.client_ips[email]
         except Exception:
             pass
 

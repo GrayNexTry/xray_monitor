@@ -50,10 +50,18 @@ class XrayGRPC:
 
     def all_online_users(self) -> list:
         raw = self._call("GetAllOnlineUsers", b"")
-        users = []
+        users: list = []
+        seen: set   = set()
         for fn, wt, val in iter_fields(raw):
             if fn == 1 and wt == 2:
-                users.append(val.decode("utf-8", errors="replace"))
+                name = val.decode("utf-8", errors="replace")
+                # Xray возвращает полный ключ статистики: "user>>>email@tag>>>online"
+                # Нам нужна только средняя часть — email@tag
+                parts = name.split(">>>")
+                email = parts[1] if len(parts) >= 3 else name
+                if email and email not in seen:
+                    seen.add(email)
+                    users.append(email)
         return users
 
     def online_ips(self, email: str) -> dict:

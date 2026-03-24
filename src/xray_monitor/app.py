@@ -255,7 +255,10 @@ class XrayMonitor(App):
         self._tick_n += 1
         threading.Thread(target=self.log_tail.update_block_stats, daemon=True).start()
         try:
-            d = self.xray.fetch(geo=self.geo if self.geo_on else None)
+            d = self.xray.fetch(
+                geo=self.geo if self.geo_on else None,
+                log_ips=self.log_tail.client_ips,
+            )
             self._last_d = d
             if "error" not in d and d.get("users"):
                 threading.Thread(
