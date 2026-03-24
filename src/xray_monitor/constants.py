@@ -20,6 +20,7 @@ C = {
 LANG = {
     "en": {
         "title":"Xray Monitor",
+        "tab_dashboard": "Dashboard", "tab_keys": "Keys", "tab_system": "System", "tab_logs": "Logs", "tab_connections": "Connections", "tab_mgmt": "Management",
         "overview":"OVERVIEW", "breakdown":"TRAFFIC BREAKDOWN", "users":"USERS",
         "system":"SYSTEM", "online":"online", "conn":"conn",
         "inbound":"INBOUND", "outbound":"OUTBOUND",
@@ -44,6 +45,8 @@ LANG = {
         "sys_latency":"Latency", "sys_temp":"Temp",
         "ping_fail":"unreachable",
         "lang_switched":"Language: English",
+        "summary":"Summary",
+        "access_key":"Access key", "last_used":"Last used",
         # Xray management
         "xray_started":"Xray started", "xray_start_fail":"Start failed",
         "xray_stopped":"Xray stopped", "xray_stop_fail":"Stop failed",
@@ -58,9 +61,16 @@ LANG = {
         "xray_status":"Xray status",
         "xray_running":"running", "xray_not_running":"stopped",
         "xray_mgmt":"XRAY MANAGEMENT",
+        # Bindings
+        "bind_quit":"Quit", "bind_reconnect":"Reconnect", "bind_sort":"Sort",
+        "bind_reset":"Reset", "bind_pause":"Pause", "bind_lang":"Language",
+        "bind_qr":"QR", "bind_restart":"Restart", "bind_edit":"Edit",
+        "bind_check":"Check", "bind_rollback":"Rollback", "bind_start":"Start",
+        "bind_stop":"Stop", "bind_update":"Update", "bind_toggle":"Toggle",
     },
     "ru": {
         "title":"Мониторинг Xray",
+        "tab_dashboard": "Панель", "tab_keys": "Ключи", "tab_system": "Система", "tab_logs": "Логи", "tab_connections": "Подключения", "tab_mgmt": "Управление",
         "overview":"ОБЗОР", "breakdown":"РАЗБИВКА ТРАФИКА", "users":"ПОЛЬЗОВАТЕЛИ",
         "system":"СИСТЕМА", "online":"онлайн", "conn":"подкл",
         "inbound":"ВХОДЯЩИЕ", "outbound":"ИСХОДЯЩИЕ",
@@ -85,6 +95,7 @@ LANG = {
         "sys_latency":"Задержка", "sys_temp":"Темп",
         "ping_fail":"недоступен",
         "lang_switched":"Язык: Русский",
+        "summary":"Итого",
         # Xray management
         "xray_started":"Xray запущен", "xray_start_fail":"Ошибка запуска",
         "xray_stopped":"Xray остановлен", "xray_stop_fail":"Ошибка остановки",
@@ -99,5 +110,11 @@ LANG = {
         "xray_status":"Статус Xray",
         "xray_running":"работает", "xray_not_running":"остановлен",
         "xray_mgmt":"УПРАВЛЕНИЕ XRAY",
+        # Bindings
+        "bind_quit":"Выход", "bind_reconnect":"Реконнект", "bind_sort":"Сортировка",
+        "bind_reset":"Сброс", "bind_pause":"Пауза", "bind_lang":"Язык",
+        "bind_qr":"QR", "bind_restart":"Рестарт", "bind_edit":"Редактировать",
+        "bind_check":"Проверка", "bind_rollback":"Откат", "bind_start":"Старт",
+        "bind_stop":"Стоп", "bind_update":"Обновить", "bind_toggle":"Вкл/Выкл",
     },
 }

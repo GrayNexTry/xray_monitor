@@ -59,23 +59,24 @@ class XrayMonitor(App):
     TITLE = "xray-monitor v10"
     CSS   = CSS
 
+    # Bindings with labels (using primary language - English shown, but configurable)
     BINDINGS = [
-        Binding("q", "quit",         "Выход"),
-        Binding("r", "reconnect",    "Реконнект"),
-        Binding("s", "toggle_sort",  "Сортировка"),
-        Binding("z", "reset_stats",  "Сброс"),
-        Binding("p", "toggle_pause", "Пауза"),
-        Binding("l", "toggle_lang",  "Язык"),
+        Binding("q", "quit",         "Выход / Quit"),
+        Binding("r", "reconnect",    "Реконнект / Reconnect"),
+        Binding("s", "toggle_sort",  "Сортировка / Sort"),
+        Binding("z", "reset_stats",  "Сброс / Reset"),
+        Binding("p", "toggle_pause", "Пауза / Pause"),
+        Binding("l", "toggle_lang",  "Язык / Language"),
         Binding("Q", "show_qr",      "QR"),
-        Binding("R", "restart_xray", "Рестарт"),
-        Binding("e", "edit_config",  "nano"),
-        Binding("C", "check_config", "Проверка"),
-        Binding("B", "rollback_config", "Откат", show=True),
+        Binding("R", "restart_xray", "Рестарт / Restart"),
+        Binding("e", "edit_config",  "Редактировать / Edit"),
+        Binding("C", "check_config", "Проверка / Check"),
+        Binding("B", "rollback_config", "Откат / Rollback", show=True),
         # Xray management
-        Binding("S", "start_xray",   "Старт",   show=False),
-        Binding("X", "stop_xray",    "Стоп",    show=False),
-        Binding("U", "update_xray",  "Обновить", show=False),
-        Binding("E", "toggle_enable_xray", "Вкл/Выкл", show=False),
+        Binding("S", "start_xray",   "Старт / Start",   show=False),
+        Binding("X", "stop_xray",    "Стоп / Stop",    show=False),
+        Binding("U", "update_xray",  "Обновить / Update", show=False),
+        Binding("E", "toggle_enable_xray", "Вкл/Выкл / Toggle", show=False),
         # Tabs and filter
         Binding("1", "tab_dash",  "", show=False),
         Binding("2", "tab_keys",  "", show=False),
@@ -118,7 +119,7 @@ class XrayMonitor(App):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with TabbedContent(id="tabs"):
-            with TabPane("Dashboard", id="tab-dash"):
+            with TabPane(self.L["tab_dashboard"], id="tab-dash"):
                 with Container(id="dash"):
                     with Horizontal(id="dash-cols"):
                         with Vertical(id="dash-left"):
@@ -130,7 +131,7 @@ class XrayMonitor(App):
                             with Container(id="filter-bar"):
                                 yield Input(placeholder="Фильтр пользователей...", id="filter-input")
                             yield UsersW("...")
-            with TabPane("Ключи", id="tab-keys"):
+            with TabPane(self.L["tab_keys"], id="tab-keys"):
                 with Horizontal(id="keys-layout"):
                     with Vertical(id="keys-left"):
                         yield KeysLeft("...")
@@ -138,7 +139,7 @@ class XrayMonitor(App):
                         yield KeysRight("...")
                         with Horizontal(id="keys-srv-row"):
                             yield Input(placeholder="IP или домен сервера (авто если пусто)", id="inp-server")
-            with TabPane("Система", id="tab-sys"):
+            with TabPane(self.L["tab_system"], id="tab-sys"):
                 with Container(id="sys-tab"):
                     with Horizontal(id="sys-top"):
                         yield SysCpuRam("...", id="sys-cpuram")
@@ -147,13 +148,13 @@ class XrayMonitor(App):
                     with Horizontal(id="sys-bottom"):
                         yield SysProcs("...",  id="sys-procs")
                         yield SysPing("...",   id="sys-ping")
-            with TabPane("Лог", id="tab-log"):
+            with TabPane(self.L["tab_logs"], id="tab-log"):
                 with Container(id="log-wrap"):
                     yield LogW("...")
-            with TabPane("Подключения", id="tab-conn"):
+            with TabPane(self.L["tab_connections"], id="tab-conn"):
                 with Container(id="conn-wrap"):
                     yield ConnW("...")
-            with TabPane("Управление", id="tab-mgmt"):
+            with TabPane(self.L["tab_mgmt"], id="tab-mgmt"):
                 with Container(id="mgmt-wrap"):
                     yield MgmtW("...")
         yield StatusBar("...", id="status")
@@ -362,7 +363,7 @@ class XrayMonitor(App):
                     t.append("\n", "")
 
             if total_out > 0:
-                t.append("\n  Summary: ", C["dim"])
+                t.append(f"\n  {L['summary']}: ", C["dim"])
                 groups = {}
                 for tag, v in outbounds.items():
                     k = classify(tag)

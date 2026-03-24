@@ -267,7 +267,8 @@ class XrayStats:
             if _HAS_GRPC and grpc is not None:
                 try:
                     if isinstance(e, grpc.RpcError):
-                        err_msg = f"gRPC: {e.code().name}"
+                        rpc_error: _grpc_type.RpcError = e  # type: ignore[assignment]
+                        err_msg = f"gRPC: {rpc_error.code().name}"
                 except Exception:
                     pass
             self.connected = False
