@@ -179,6 +179,7 @@ class XrayStats:
             "sys": {}, "online_users": [], "user_ips": {},
             "total_up": 0, "total_down": 0, "speed_up": 0.0, "speed_down": 0.0,
         }
+        _qs_online: list = []
         try:
             with self._lock:
                 self._fetch_n += 1
@@ -189,7 +190,11 @@ class XrayStats:
                     if not n: continue
                     cur[n] = val
                     parts = n.split(">>>")
-                    if len(parts) == 4:
+                    # user>>>email>>>online  (3 части, val=1 если онлайн)
+                    if (len(parts) == 3 and parts[0] == "user"
+                            and parts[2] == "online" and val):
+                        _qs_online.append(parts[1])
+                    elif len(parts) == 4:
                         cat, tag, _, dir_ = parts
                         bucket_key = _cat_map.get(cat)
                         if bucket_key:
@@ -234,19 +239,29 @@ class XrayStats:
             try: R["sys"] = stub.sys_stats()
             except Exception: pass
 
+            # Дополняем онлайн-список из GetAllOnlineUsers (если поддерживается)
             try:
-                R["online_users"] = stub.all_online_users()
+                grpc_online = stub.all_online_users()
+                # Объединяем: QueryStats + GetAllOnlineUsers (без дублей)
+                merged = list(dict.fromkeys(_qs_online + grpc_online))
+                R["online_users"] = merged if merged else _qs_online
+            except Exception:
+                R["online_users"] = _qs_online
+
+            try:
                 for em in R["users"]:
                     try:
                         ips = stub.online_ips(em)
                         if ips: R["user_ips"][em] = ips
                     except Exception:
                         pass
-                with self._lock:
-                    self._track(R["online_users"], R["user_ips"],
-                                log_ips=log_ips)
             except Exception:
                 pass
+
+            # _track вызывается всегда — QueryStats всегда доступен
+            with self._lock:
+                self._track(R["online_users"], R["user_ips"],
+                            log_ips=log_ips)
 
         except Exception as e:
             err_msg = str(e)
