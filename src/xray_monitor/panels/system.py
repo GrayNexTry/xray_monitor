@@ -10,7 +10,7 @@ from ..constants import C, L
 from ..utils import fmt_b, fmt_s, gauge, pct_bar, pct_col, H
 
 if TYPE_CHECKING:
-    from ..App import XrayMonitor
+    from ..app import XrayMonitor
 
 
 def render_cpu_ram(app: "XrayMonitor") -> Text:

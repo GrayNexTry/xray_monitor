@@ -15,7 +15,7 @@ from ..modules.xray_manager import (
 )
 
 if TYPE_CHECKING:
-    from ..App import XrayMonitor
+    from ..app import XrayMonitor
 
 
 def _get_xray_journal(lines: int = 40) -> list:

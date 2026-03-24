@@ -86,24 +86,33 @@ class XrayStats:
     def _track(self, online_set: list, user_ips: dict, geo: Any) -> None:
         """Отслеживает события подключения/отключения. Вызывается под self._lock."""
         cur = set(online_set)
-        for u in cur - self._prev_online:
-            self.conn_events.append(ConnEvent("connect", u))
-        for u in self._prev_online - cur:
-            self.conn_events.append(ConnEvent("disconnect", u))
-        self._prev_online = cur
 
+        # Обрабатываем изменения IP-адресов (более информативны — содержат IP)
         stale = set(self._prev_ips.keys()) - set(user_ips.keys()) - cur
         for email in stale:
             self._prev_ips.pop(email, None)
 
+        users_with_ip_events: set = set()
         for email, ips in user_ips.items():
             cp = set(ips.keys()); pp = self._prev_ips.get(email, set())
             for ip in cp - pp:
-                g = geo.fmt(ip) if geo else ""
-                self.conn_events.append(ConnEvent("connect", email, ip, g))
+                # Geo не сохраняем здесь — будет подтягиваться при рендере из кэша
+                self.conn_events.append(ConnEvent("connect", email, ip))
+                users_with_ip_events.add(email)
             for ip in pp - cp:
                 self.conn_events.append(ConnEvent("disconnect", email, ip))
+                users_with_ip_events.add(email)
             self._prev_ips[email] = cp
+
+        # Для пользователей без IP (протокол не раскрывает адрес) создаём событие без IP
+        for u in cur - self._prev_online:
+            if u not in users_with_ip_events:
+                self.conn_events.append(ConnEvent("connect", u))
+        for u in self._prev_online - cur:
+            if u not in users_with_ip_events:
+                self.conn_events.append(ConnEvent("disconnect", u))
+
+        self._prev_online = cur
 
     def _update_user_hist(self, em: str, su: float, sd: float) -> None:
         """Обновляет историю пользователя с LRU-вытеснением. Под self._lock."""

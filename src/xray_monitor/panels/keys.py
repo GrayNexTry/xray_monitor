@@ -12,7 +12,7 @@ from ..constants import C, L
 from ..utils import H
 
 if TYPE_CHECKING:
-    from ..App import XrayMonitor
+    from ..app import XrayMonitor
 
 
 def render_keys_left(app: "XrayMonitor") -> Text:

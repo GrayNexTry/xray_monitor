@@ -10,7 +10,7 @@ from ..constants import C, L
 from ..utils import gauge, H
 
 if TYPE_CHECKING:
-    from ..App import XrayMonitor
+    from ..app import XrayMonitor
 
 
 def render_log(app: "XrayMonitor") -> Text:

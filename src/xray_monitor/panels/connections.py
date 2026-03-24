@@ -11,7 +11,7 @@ from ..constants import C, L
 from ..utils import fmt_ts, H
 
 if TYPE_CHECKING:
-    from ..App import XrayMonitor
+    from ..app import XrayMonitor
 
 
 def render_connections(app: "XrayMonitor") -> Text:
@@ -36,6 +36,9 @@ def render_connections(app: "XrayMonitor") -> Text:
         t.append(f"{name:<30}", "bold" if ev.kind == "connect" else C["dim"])
         if ev.ip:
             t.append(f"  {ev.ip:<18}", C["dim"])
-            if ev.geo: t.append(f" {ev.geo}", C["accent2"])
+            if app.geo_on:
+                geo_str = app.geo.fmt(ev.ip)
+                if geo_str and geo_str != "...":
+                    t.append(f" {geo_str}", C["accent2"])
         t.append("\n")
     return t
