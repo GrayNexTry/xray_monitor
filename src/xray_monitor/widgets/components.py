@@ -18,3 +18,4 @@ class LogW(Static):      pass
 class ConnW(Static):     pass
 class MgmtW(Static):     pass
 class StatusBar(Static): pass
+class HintsBar(Static):  pass

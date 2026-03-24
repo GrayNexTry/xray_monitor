@@ -14,7 +14,7 @@ from datetime import datetime
 from urllib.request import urlopen
 
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static, TabbedContent, TabPane, Input
+from textual.widgets import Header, Static, TabbedContent, TabPane, Input
 from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
 from textual.binding import Binding
@@ -39,7 +39,7 @@ from .widgets import (
     CSS, OvBox, SysBox, TrafficW, UsersW,
     KeysLeft, KeysRight,
     SysCpuRam, SysDisk, SysNet, SysProcs, SysPing,
-    LogW, ConnW, MgmtW, StatusBar, QRModal,
+    LogW, ConnW, MgmtW, StatusBar, HintsBar, QRModal,
 )
 from .panels.dashboard   import render_overview, render_sysmini, render_traffic, render_users
 from .panels.system      import render_cpu_ram, render_disk, render_net, render_procs, render_ping
@@ -68,20 +68,20 @@ class XrayMonitor(App):
     CSS   = CSS
 
     BINDINGS = [
-        Binding("q",      "quit",               "Выход"),
-        Binding("r",      "reconnect",           "Реконнект"),
-        Binding("s",      "toggle_sort",         "Сортировка"),
-        Binding("z",      "reset_stats",         "Сброс"),
-        Binding("p",      "toggle_pause",        "Пауза"),
-        Binding("Q",      "show_qr",             "QR"),
-        Binding("R",      "restart_xray",        "Рестарт"),
-        Binding("e",      "edit_config",         "Редактировать"),
-        Binding("C",      "check_config",        "Проверка"),
-        Binding("B",      "rollback_config",     "Откат", show=True),
-        Binding("S",      "start_xray",          "Старт",     show=False),
-        Binding("X",      "stop_xray",           "Стоп",      show=False),
-        Binding("U",      "update_xray",         "Обновить",  show=False),
-        Binding("E",      "toggle_enable_xray",  "Вкл/Выкл",  show=False),
+        Binding("q",      "quit",               "", show=False),
+        Binding("r",      "reconnect",           "", show=False),
+        Binding("s",      "toggle_sort",         "", show=False),
+        Binding("z",      "reset_stats",         "", show=False),
+        Binding("p",      "toggle_pause",        "", show=False),
+        Binding("Q",      "show_qr",             "", show=False),
+        Binding("R",      "restart_xray",        "", show=False),
+        Binding("e",      "edit_config",         "", show=False),
+        Binding("C",      "check_config",        "", show=False),
+        Binding("B",      "rollback_config",     "", show=False),
+        Binding("S",      "start_xray",          "", show=False),
+        Binding("X",      "stop_xray",           "", show=False),
+        Binding("U",      "update_xray",         "", show=False),
+        Binding("E",      "toggle_enable_xray",  "", show=False),
         Binding("1", "tab_dash",  "", show=False),
         Binding("2", "tab_keys",  "", show=False),
         Binding("3", "tab_sys",   "", show=False),
@@ -91,6 +91,16 @@ class XrayMonitor(App):
         Binding("f",      "toggle_filter",  "", show=False),
         Binding("escape", "clear_filter",   "", show=False),
     ]
+
+    # ── Подсказки по вкладкам ────────────────────────────────
+    _TAB_HINTS: dict = {
+        "tab-dash":  "q выход  r реконнект  s сортировка  z сброс  p пауза  Q QR  f фильтр  1-6 вкладки",
+        "tab-keys":  "q выход  e редактор  C проверка  B откат  Q QR  r реконнект  1-6 вкладки",
+        "tab-sys":   "q выход  r реконнект  p пауза  1-6 вкладки",
+        "tab-log":   "q выход  r реконнект  z сброс блокировок  1-6 вкладки",
+        "tab-conn":  "q выход  r реконнект  f фильтр  1-6 вкладки",
+        "tab-mgmt":  "q выход  S старт  X стоп  R рестарт  E авт.запуск  U обновить  e редактор  C проверка  B откат",
+    }
 
     sort_by     = reactive("downlink")
     geo_on      = reactive(True)
@@ -169,7 +179,7 @@ class XrayMonitor(App):
                 with Container(id="mgmt-wrap"):
                     yield MgmtW("...")
         yield StatusBar("...", id="status")
-        yield Footer()
+        yield HintsBar(self._TAB_HINTS["tab-dash"], id="hints")
 
     # ── Mount ─────────────────────────────────────────────────
 
@@ -199,6 +209,25 @@ class XrayMonitor(App):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "filter-input":
             event.input.blur()
+
+    def on_tabbed_content_tab_activated(
+        self, event: TabbedContent.TabActivated
+    ) -> None:
+        if not event.tab:
+            return
+        # Textual формирует id как "--content-tab-tab-dash" → берём часть после последнего "tab-"
+        raw = event.tab.id or ""
+        # Ищем наш tab-id в строке напрямую
+        tab_id = "tab-dash"
+        for key in self._TAB_HINTS:
+            if key in raw:
+                tab_id = key
+                break
+        hint = self._TAB_HINTS[tab_id]
+        try:
+            self.query_one("#hints", HintsBar).update(hint)
+        except Exception:
+            pass
 
     # ── Tick / Draw ──────────────────────────────────────────
 

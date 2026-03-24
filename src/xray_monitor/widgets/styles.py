@@ -50,8 +50,9 @@ QRModal    { align: center middle; }
 #qr-box    { width: auto; height: auto; max-width: 80; max-height: 50;
              border: double $accent; padding: 1 2; background: $surface; }
 
-/* Строка состояния */
-#status    { dock: bottom; height: 1; background: $boost; color: $text; padding: 0 1; }
+/* Строки состояния и подсказок */
+#status    { dock: bottom; height: 1; background: $boost;    color: $text;    padding: 0 1; }
+HintsBar   { dock: bottom; height: 1; background: $surface-darken-1; color: $text-muted; padding: 0 1; }
 
 TabbedContent { height: 1fr; }
 TabPane       { height: 1fr; padding: 0; }
