@@ -93,6 +93,7 @@ class XrayMonitor(App):
     ]
 
     # ── Подсказки по вкладкам ────────────────────────────────
+    # Формат: "ключ описание  ключ описание  ..."  (разделитель — два пробела)
     _TAB_HINTS: dict = {
         "tab-dash":  "q выход  r реконнект  s сортировка  z сброс  p пауза  Q QR  f фильтр  1-6 вкладки",
         "tab-keys":  "q выход  e редактор  C проверка  B откат  Q QR  r реконнект  1-6 вкладки",
@@ -101,6 +102,23 @@ class XrayMonitor(App):
         "tab-conn":  "q выход  r реконнект  f фильтр  1-6 вкладки",
         "tab-mgmt":  "q выход  S старт  X стоп  R рестарт  E авт.запуск  U обновить  e редактор  C проверка  B откат",
     }
+
+    @staticmethod
+    def _render_hints(hint_str: str) -> Text:
+        """Превращает строку подсказок в Rich Text с подсветкой клавиш."""
+        t = Text()
+        for i, chunk in enumerate(hint_str.split("  ")):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            parts = chunk.split(" ", 1)
+            key  = parts[0]
+            desc = parts[1] if len(parts) > 1 else ""
+            if i > 0:
+                t.append("  ", "")
+            t.append(f" {key} ", C["accent3"])
+            t.append(desc, C["dim"])
+        return t
 
     sort_by     = reactive("downlink")
     geo_on      = reactive(True)
@@ -179,7 +197,7 @@ class XrayMonitor(App):
                 with Container(id="mgmt-wrap"):
                     yield MgmtW("...")
         yield StatusBar("...", id="status")
-        yield HintsBar(self._TAB_HINTS["tab-dash"], id="hints")
+        yield HintsBar(self._render_hints(self._TAB_HINTS["tab-dash"]), id="hints")
 
     # ── Mount ─────────────────────────────────────────────────
 
@@ -223,9 +241,10 @@ class XrayMonitor(App):
             if key in raw:
                 tab_id = key
                 break
-        hint = self._TAB_HINTS[tab_id]
         try:
-            self.query_one("#hints", HintsBar).update(hint)
+            self.query_one("#hints", HintsBar).update(
+                self._render_hints(self._TAB_HINTS[tab_id])
+            )
         except Exception:
             pass
 
