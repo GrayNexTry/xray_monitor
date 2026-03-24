@@ -33,7 +33,7 @@ def main() -> None:
         print("Установите textual:  pip install textual>=0.47")
         sys.exit(1)
 
-    from .App import XrayMonitor
+    from .app import XrayMonitor
 
     p = argparse.ArgumentParser(
         description=f"xray-monitor v{__version__}",
