@@ -38,12 +38,17 @@ SysProcs   { height: 1fr; }
 SysPing    { height: 1fr; }
 
 /* Лог / Подключения / Управление */
-LogW       { height: 1fr; padding: 0 1; border: tall $primary; overflow-y: auto; }
-ConnW      { height: 1fr; padding: 0 1; border: tall $primary; overflow-y: auto; }
-MgmtW      { height: 1fr; padding: 0 1; border: tall $accent;  overflow-y: auto; }
-#log-wrap  { height: 1fr; }
-#conn-wrap { height: 1fr; }
-#mgmt-wrap { height: 1fr; }
+LogW  { height: auto; padding: 0 1; }
+ConnW { height: auto; padding: 0 1; }
+MgmtW { height: auto; padding: 0 1; }
+
+#log-scroll  { height: 1fr; border: tall $primary; }
+#conn-scroll { height: 1fr; border: tall $primary; }
+#mgmt-scroll { height: 1fr; border: tall $accent;  }
+
+#log-scroll  > .vertical-scrollbar  { width: 1; }
+#conn-scroll > .vertical-scrollbar  { width: 1; }
+#mgmt-scroll > .vertical-scrollbar  { width: 1; }
 
 /* QR-модальное окно */
 QRModal    { align: center middle; }

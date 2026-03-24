@@ -15,7 +15,7 @@ from urllib.request import urlopen
 
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Static, TabbedContent, TabPane, Input
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.binding import Binding
 from rich.text import Text
@@ -188,13 +188,13 @@ class XrayMonitor(App):
                         yield SysProcs("...",  id="sys-procs")
                         yield SysPing("...",   id="sys-ping")
             with TabPane(L["tab_logs"], id="tab-log"):
-                with Container(id="log-wrap"):
+                with VerticalScroll(id="log-scroll"):
                     yield LogW("...")
             with TabPane(L["tab_connections"], id="tab-conn"):
-                with Container(id="conn-wrap"):
+                with VerticalScroll(id="conn-scroll"):
                     yield ConnW("...")
             with TabPane(L["tab_mgmt"], id="tab-mgmt"):
-                with Container(id="mgmt-wrap"):
+                with VerticalScroll(id="mgmt-scroll"):
                     yield MgmtW("...")
         yield StatusBar("...", id="status")
         yield HintsBar(self._render_hints(self._TAB_HINTS["tab-dash"]), id="hints")

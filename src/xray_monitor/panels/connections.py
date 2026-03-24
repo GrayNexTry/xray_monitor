@@ -58,8 +58,8 @@ def render_connections(app: "XrayMonitor") -> Text:
         sorted_ips = sorted(all_ips.items(),
                             key=lambda x: (not x[1]["online"], -x[1]["ts"]))
 
-        t.append(f"  {'IP':<20} {'Последний вход':<18} {'Статус':<12} Локация\n", C["dim"])
-        t.append("  " + H * 72 + "\n", C["dim"])
+        t.append(f"  {'Дата':<9} {'Время':<9} {'IP':<19} {'Давность':<16} {'Статус':<12} Локация\n", C["dim"])
+        t.append("  " + H * 76 + "\n", C["dim"])
 
         for ip, info in sorted_ips:
             is_on  = info["online"]
@@ -68,10 +68,13 @@ def render_connections(app: "XrayMonitor") -> Text:
             dot_c  = C["online"] if is_on else C["offline"]
             ago    = _fmt_ago(ts)
             time_s = fmt_ts(ts)
+            date_s = datetime.fromtimestamp(ts).strftime("%d.%m")
 
             t.append(f"  {dot} ", dot_c)
+            t.append(f"{date_s}  ", C["dim"])
+            t.append(f"{time_s}  ", C["dim"])
             t.append(f"{ip:<19}", "bold" if is_on else C["dim"])
-            t.append(f"{time_s}  {ago:<16}", C["dim"])
+            t.append(f"{ago:<16}", C["dim"])
 
             if is_on:
                 t.append("онлайн      ", C["online"])
