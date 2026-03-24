@@ -211,9 +211,37 @@ echo "$NEW_VERSION" > "$VERSION_FILE"
 info "Создаём команду $BIN_LINK..."
 cat > "$BIN_LINK" << 'LAUNCHER'
 #!/usr/bin/env bash
+# Автоматически запрашиваем sudo если не root
+if [ "$EUID" -ne 0 ]; then
+    exec sudo -E /opt/xray-monitor/venv/bin/python -m xray_monitor "$@"
+fi
 exec /opt/xray-monitor/venv/bin/python -m xray_monitor "$@"
 LAUNCHER
 chmod +x "$BIN_LINK"
+
+# ── Права на логи и sudoers ──────────────────────────────────
+
+# Делаем директорию логов xray читаемой без root
+if [[ -d "/var/log/xray" ]]; then
+    chmod 755 /var/log/xray 2>/dev/null || true
+    find /var/log/xray -name "*.log" -exec chmod 644 {} \; 2>/dev/null || true
+    info "Права на /var/log/xray/ настроены"
+fi
+
+# sudoers: запуск xray-monitor без пароля для группы sudo
+SUDOERS_FILE="/etc/sudoers.d/xray-monitor"
+cat > "$SUDOERS_FILE" << 'SUDOERS'
+# xray-monitor: запуск без пароля для администраторов
+%sudo ALL=(ALL) NOPASSWD: /opt/xray-monitor/venv/bin/python -m xray_monitor *
+SUDOERS
+chmod 440 "$SUDOERS_FILE"
+# Проверяем синтаксис sudoers
+if visudo -cf "$SUDOERS_FILE" &>/dev/null; then
+    info "Sudoers настроен: xray-monitor без пароля"
+else
+    warn "Ошибка в sudoers, удаляем файл"
+    rm -f "$SUDOERS_FILE"
+fi
 
 # ── Создаём systemd-сервис ───────────────────────────────────
 
