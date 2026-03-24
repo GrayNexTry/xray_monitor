@@ -65,13 +65,23 @@ class XrayGRPC:
         return users
 
     def online_ips(self, email: str) -> dict:
-        body = encode_string(1, email)
+        # Xray ожидает имя в формате "user>>>email>>>online" (см. stats_online_ip_list.go)
+        stat_name = f"user>>>{email}>>>online"
+        body = encode_string(1, stat_name)
         raw  = self._call("GetStatsOnlineIpList", body)
         ips: dict = {}
+        # Response: GetStatsOnlineIpListResponse
+        #   field 1 (string): name
+        #   field 2 (map<string,int64>): ip -> unix_timestamp последнего подключения
         for fn, wt, val in iter_fields(raw):
-            if fn == 1 and wt == 2:
+            if fn == 2 and wt == 2:  # map entry
+                ip = ""
+                ts = 0
                 for f2, w2, v2 in iter_fields(val):
-                    if f2 == 1 and w2 == 2:
+                    if f2 == 1 and w2 == 2:   # key = IP string
                         ip = v2.decode("utf-8", errors="replace")
-                        ips[ip] = ips.get(ip, 0) + 1
+                    elif f2 == 2 and w2 == 0:  # value = unix timestamp
+                        ts = v2
+                if ip:
+                    ips[ip] = ts
         return ips

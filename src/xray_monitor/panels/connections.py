@@ -32,10 +32,19 @@ def render_connections(app: "XrayMonitor") -> Text:
     t.append(f" {L['conn_log']}\n", C["accent"])
     t.append("  " + H * 78 + "\n", C["dim"])
 
-    # Текущие активные IP из gRPC (точный источник "онлайн")
+    # Текущие активные IP из gRPC (GetStatsOnlineIpList)
     grpc_online_ips: set = set()
     for ips in app.xray._prev_ips.values():
         grpc_online_ips.update(ips)
+
+    # Fallback: GetStatsOnlineIpList не работает — используем лог + all_online_users
+    # Если пользователь онлайн и его IP виден в логе за последние 5 минут → онлайн
+    if not grpc_online_ips and app.xray._prev_online:
+        recent = time.time() - 300
+        for email in app.xray._prev_online:
+            for ip, ts in app.log_tail.client_ips.get(email, {}).items():
+                if ts > recent:
+                    grpc_online_ips.add(ip)
 
     # ── Сводная таблица IP ───────────────────────────────────
     # Собираем все известные IP из log_tail (за 24 ч) + текущие gRPC

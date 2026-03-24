@@ -116,7 +116,8 @@ class XrayStats:
                             already_from_log.add((email, ip))
                         elif ts > prev[ip] + 30:
                             # Тот же IP, но существенно более новый timestamp —
-                            # переподключение (напр. после разрыва)
+                            # переподключение: сначала disconnect, потом connect
+                            self.conn_events.append(ConnEvent("disconnect", email, ip))
                             self.conn_events.append(ConnEvent("connect", email, ip))
                             already_from_log.add((email, ip))
                 self._prev_log_ips = {
@@ -147,13 +148,15 @@ class XrayStats:
                 users_with_grpc_events.add(email)
             self._prev_ips[email] = ip_set
 
-        # ── 3. User-level connect/disconnect (нет IP ни в gRPC, ни в логе) ─
+        # ── 3. User-level connect/disconnect ──────────────────
         log_users = set(log_ips.keys()) if log_ips else set()
         for u in cur - self._prev_online:
+            # connect пропускаем если лог уже сгенерил событие по IP
             if u not in users_with_grpc_events and u not in log_users:
                 self.conn_events.append(ConnEvent("connect", u, ""))
         for u in self._prev_online - cur:
-            if u not in users_with_grpc_events and u not in log_users:
+            # disconnect всегда — лог не умеет их детектировать
+            if u not in users_with_grpc_events:
                 self.conn_events.append(ConnEvent("disconnect", u,
                                                   _latest_log_ip(u)))
 
