@@ -67,6 +67,14 @@ LANG = {
         "bind_qr":"QR", "bind_restart":"Restart", "bind_edit":"Edit",
         "bind_check":"Check", "bind_rollback":"Rollback", "bind_start":"Start",
         "bind_stop":"Stop", "bind_update":"Update", "bind_toggle":"Toggle",
+        # Keys panel
+        "resumed":"Resumed", "enter_server_ip_first":"Enter server IP first",
+        "no_clients":"No clients found in config.json", "no_email":"(no email)",
+        "enter_server_ip_url":"Enter server IP below for URL",
+        "qr_first_client":"[Q] QR first client",
+        "edit_config_hint":"[e] Open config in nano (auto-backup)",
+        "check_rollback":"[C] Check syntax  [B] Rollback to backup",
+        "inbound_config":"INBOUND CONFIG",
     },
     "ru": {
         "title":"Мониторинг Xray",
@@ -116,5 +124,13 @@ LANG = {
         "bind_qr":"QR", "bind_restart":"Рестарт", "bind_edit":"Редактировать",
         "bind_check":"Проверка", "bind_rollback":"Откат", "bind_start":"Старт",
         "bind_stop":"Стоп", "bind_update":"Обновить", "bind_toggle":"Вкл/Выкл",
+        # Keys panel
+        "resumed":"Продолжение", "enter_server_ip_first":"Введите IP сервера",
+        "no_clients":"Клиентов не найдено в config.json", "no_email":"(нет email)",
+        "enter_server_ip_url":"Введите IP сервера ниже для URL",
+        "qr_first_client":"[Q] QR первого клиента",
+        "edit_config_hint":"[e] Открыть конфиг в nano (авто-бэкап)",
+        "check_rollback":"[C] Проверка  [B] Откат к бэкапу",
+        "inbound_config":"ВХОДЯЩАЯ КОНФИГУРАЦИЯ",
     },
 }

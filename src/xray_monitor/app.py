@@ -670,7 +670,7 @@ class XrayMonitor(App):
         self.paused = not self.paused
         if self.paused:
             self._paused_at = time.time()
-        self.notify(self.L["paused"] if self.paused else "Resumed")
+        self.notify(self.L["paused"] if self.paused else self.L["resumed"])
 
     def action_toggle_filter(self):
         self.show_filter = not self.show_filter
@@ -699,7 +699,7 @@ class XrayMonitor(App):
             clients = self.cfg.build_client_urls(ip)
             url = clients[0]["url"] if clients else ""
         if not url:
-            self.notify("Enter server IP first", severity="warning")
+            self.notify(self.L["enter_server_ip_first"], severity="warning")
             return
         if not HAS_QR:
             copy_to_clipboard(url)
@@ -1017,6 +1017,7 @@ class XrayMonitor(App):
             return ""
 
     def _draw_keys_panel(self):
+        L = self.L
         server_ip = self._get_server_ip()
         clients   = self.cfg.build_client_urls(server_ip)
 
@@ -1024,12 +1025,12 @@ class XrayMonitor(App):
         t.append(" ACCESS KEYS\n\n", C["accent"])
 
         if not clients:
-            t.append("  No clients found in config.json\n", C["dim"])
+            t.append(f"  {L['no_clients']}\n", C["dim"])
             t.append(f"  Path: {self.cfg.path}\n", C["accent2"])
         else:
             for idx, cl in enumerate(clients):
                 is_first = idx == 0
-                email    = cl["email"] or "(no email)"
+                email    = cl["email"] or L["no_email"]
                 uid      = cl["uuid"]
                 tag      = cl["tag"]
                 port     = cl["port"]
@@ -1063,15 +1064,15 @@ class XrayMonitor(App):
                     if is_first:
                         self._qr_url = url
                 elif not server_ip:
-                    t.append(f"\nEnter server IP below for URL\n", C["warn"])
+                    t.append(f"\n{L['enter_server_ip_url']}\n", C["warn"])
 
                 if idx < len(clients) - 1:
                     t.append("\n" + H*50 + "\n\n", C["dim"])
 
         if server_ip:
-            t.append("\n  [Q] QR first client\n", C["dim"])
-        t.append("  [e] Open config in nano (auto-backup)\n", C["dim"])
-        t.append("  [C] Check syntax  [B] Rollback to backup\n", C["dim"])
+            t.append(f"\n  {L['qr_first_client']}\n", C["dim"])
+        t.append(f"  {L['edit_config_hint']}\n", C["dim"])
+        t.append(f"  {L['check_rollback']}\n", C["dim"])
         baks = self._get_backups()
         if baks:
             last = os.path.basename(baks[-1])
@@ -1084,7 +1085,8 @@ class XrayMonitor(App):
 
     def _draw_keys_right_raw(self):
         t = Text()
-        t.append(" INBOUND CONFIG\n\n", C["accent"])
+        L = self.L
+        t.append(f" {L['inbound_config']}\n\n", C["accent"])
         try:
             for ib in self.cfg.get_inbounds():
                 if ib.get("protocol") not in ("vless", "vmess"): continue
