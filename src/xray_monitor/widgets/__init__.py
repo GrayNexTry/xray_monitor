@@ -1,0 +1,19 @@
+"""Экспорт виджетов."""
+
+from .styles import CSS
+from .components import (
+    OvBox, SysBox, TrafficW, UsersW,
+    KeysLeft, KeysRight,
+    SysCpuRam, SysDisk, SysNet, SysProcs, SysPing,
+    LogW, ConnW, MgmtW, StatusBar,
+)
+from .qr_modal import QRModal
+
+__all__ = [
+    "CSS",
+    "OvBox", "SysBox", "TrafficW", "UsersW",
+    "KeysLeft", "KeysRight",
+    "SysCpuRam", "SysDisk", "SysNet", "SysProcs", "SysPing",
+    "LogW", "ConnW", "MgmtW", "StatusBar",
+    "QRModal",
+]

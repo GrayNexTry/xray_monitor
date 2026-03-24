@@ -1,4 +1,6 @@
-"""Xray-core management: update, restart, stop, start, status."""
+"""Управление xray-core: обновление, перезапуск, старт, стоп."""
+
+from __future__ import annotations
 
 import os
 import re
@@ -11,21 +13,18 @@ import threading
 from typing import Optional, Tuple, Callable
 from urllib.request import urlopen, Request
 
-_GITHUB_API = "https://api.github.com/repos/XTLS/Xray-core/releases/latest"
-_XRAY_BINS = ["/usr/local/bin/xray", "/usr/bin/xray"]
+_GITHUB_API  = "https://api.github.com/repos/XTLS/Xray-core/releases/latest"
+_XRAY_BINS   = ["/usr/local/bin/xray", "/usr/bin/xray"]
 _XRAY_SERVICE = "xray"
 
-# Cache for version checks (avoid hammering GitHub API)
 _version_cache: dict = {}
-_VERSION_TTL = 300  # 5 minutes
+_VERSION_TTL = 300   # 5 минут
 
 
 def find_xray_binary() -> Optional[str]:
-    """Find the xray binary path."""
     for path in _XRAY_BINS:
         if os.path.isfile(path) and os.access(path, os.X_OK):
             return path
-    # Try PATH
     try:
         r = subprocess.run(["which", "xray"], capture_output=True, text=True, timeout=3)
         if r.returncode == 0 and r.stdout.strip():
@@ -36,14 +35,12 @@ def find_xray_binary() -> Optional[str]:
 
 
 def get_installed_version() -> Optional[str]:
-    """Get currently installed xray version."""
     xray = find_xray_binary()
     if not xray:
         return None
     try:
         r = subprocess.run([xray, "version"], capture_output=True, text=True, timeout=5)
         if r.returncode == 0:
-            # Parse "Xray 1.8.24 (Xray, Penetrates Everything.) ..."
             m = re.search(r"Xray\s+(\d+\.\d+\.\d+)", r.stdout)
             if m:
                 return m.group(1)
@@ -53,19 +50,18 @@ def get_installed_version() -> Optional[str]:
 
 
 def get_latest_version() -> Tuple[Optional[str], Optional[str]]:
-    """Get latest xray-core version from GitHub. Returns (version, download_url)."""
+    """Возвращает (version, download_url) из GitHub."""
     now = time.monotonic()
     cached = _version_cache.get("latest")
     if cached and now - cached[0] < _VERSION_TTL:
         return cached[1], cached[2]
 
     try:
-        req = Request(_GITHUB_API, headers={"User-Agent": "xray-monitor"})
-        raw = urlopen(req, timeout=10).read()
+        req  = Request(_GITHUB_API, headers={"User-Agent": "xray-monitor"})
+        raw  = urlopen(req, timeout=10).read()
         data = json.loads(raw)
-        tag = data.get("tag_name", "").lstrip("v")
+        tag  = data.get("tag_name", "").lstrip("v")
 
-        # Detect architecture
         arch = platform.machine().lower()
         arch_map = {
             "x86_64": "64", "amd64": "64",
@@ -89,30 +85,25 @@ def get_latest_version() -> Tuple[Optional[str], Optional[str]]:
 
 
 def get_xray_status() -> dict:
-    """Get xray service status."""
-    result = {
+    result: dict = {
         "running": False,
         "enabled": False,
-        "pid": None,
-        "uptime": None,
-        "memory": None,
+        "pid":     None,
+        "uptime":  None,
+        "memory":  None,
         "version": get_installed_version(),
     }
 
     try:
-        r = subprocess.run(
-            ["systemctl", "is-active", _XRAY_SERVICE],
-            capture_output=True, text=True, timeout=5
-        )
+        r = subprocess.run(["systemctl", "is-active", _XRAY_SERVICE],
+                           capture_output=True, text=True, timeout=5)
         result["running"] = r.stdout.strip() == "active"
     except Exception:
         pass
 
     try:
-        r = subprocess.run(
-            ["systemctl", "is-enabled", _XRAY_SERVICE],
-            capture_output=True, text=True, timeout=5
-        )
+        r = subprocess.run(["systemctl", "is-enabled", _XRAY_SERVICE],
+                           capture_output=True, text=True, timeout=5)
         result["enabled"] = r.stdout.strip() == "enabled"
     except Exception:
         pass
@@ -122,8 +113,7 @@ def get_xray_status() -> dict:
             r = subprocess.run(
                 ["systemctl", "show", _XRAY_SERVICE,
                  "--property=MainPID,ActiveEnterTimestamp,MemoryCurrent"],
-                capture_output=True, text=True, timeout=5
-            )
+                capture_output=True, text=True, timeout=5)
             for line in r.stdout.splitlines():
                 if line.startswith("MainPID="):
                     pid = line.split("=", 1)[1].strip()
@@ -140,70 +130,55 @@ def get_xray_status() -> dict:
 
 
 def start_xray() -> Tuple[bool, str]:
-    """Start xray service."""
     try:
-        r = subprocess.run(
-            ["systemctl", "start", _XRAY_SERVICE],
-            capture_output=True, text=True, timeout=15
-        )
+        r = subprocess.run(["systemctl", "start", _XRAY_SERVICE],
+                           capture_output=True, text=True, timeout=15)
         if r.returncode == 0:
-            return True, "Xray started"
+            return True, "Xray запущен"
         return False, (r.stderr or r.stdout).strip()[:200]
     except Exception as e:
         return False, str(e)
 
 
 def stop_xray() -> Tuple[bool, str]:
-    """Stop xray service."""
     try:
-        r = subprocess.run(
-            ["systemctl", "stop", _XRAY_SERVICE],
-            capture_output=True, text=True, timeout=15
-        )
+        r = subprocess.run(["systemctl", "stop", _XRAY_SERVICE],
+                           capture_output=True, text=True, timeout=15)
         if r.returncode == 0:
-            return True, "Xray stopped"
+            return True, "Xray остановлен"
         return False, (r.stderr or r.stdout).strip()[:200]
     except Exception as e:
         return False, str(e)
 
 
 def restart_xray() -> Tuple[bool, str]:
-    """Restart xray service."""
     try:
-        r = subprocess.run(
-            ["systemctl", "restart", _XRAY_SERVICE],
-            capture_output=True, text=True, timeout=15
-        )
+        r = subprocess.run(["systemctl", "restart", _XRAY_SERVICE],
+                           capture_output=True, text=True, timeout=15)
         if r.returncode == 0:
-            return True, "Xray restarted"
+            return True, "Xray перезапущен"
         return False, (r.stderr or r.stdout).strip()[:200]
     except Exception as e:
         return False, str(e)
 
 
 def enable_xray() -> Tuple[bool, str]:
-    """Enable xray service to start on boot."""
     try:
-        r = subprocess.run(
-            ["systemctl", "enable", _XRAY_SERVICE],
-            capture_output=True, text=True, timeout=10
-        )
+        r = subprocess.run(["systemctl", "enable", _XRAY_SERVICE],
+                           capture_output=True, text=True, timeout=10)
         if r.returncode == 0:
-            return True, "Xray enabled"
+            return True, "Автозапуск Xray включён"
         return False, (r.stderr or r.stdout).strip()[:200]
     except Exception as e:
         return False, str(e)
 
 
 def disable_xray() -> Tuple[bool, str]:
-    """Disable xray service from starting on boot."""
     try:
-        r = subprocess.run(
-            ["systemctl", "disable", _XRAY_SERVICE],
-            capture_output=True, text=True, timeout=10
-        )
+        r = subprocess.run(["systemctl", "disable", _XRAY_SERVICE],
+                           capture_output=True, text=True, timeout=10)
         if r.returncode == 0:
-            return True, "Xray disabled"
+            return True, "Автозапуск Xray выключен"
         return False, (r.stderr or r.stdout).strip()[:200]
     except Exception as e:
         return False, str(e)
@@ -211,123 +186,102 @@ def disable_xray() -> Tuple[bool, str]:
 
 def update_xray_core(callback: Optional[Callable] = None) -> Tuple[bool, str]:
     """
-    Download and install latest xray-core.
-    callback(stage, message) is called with progress updates.
-    Returns (success, message).
+    Скачивает и устанавливает последнюю версию xray-core.
+    callback(stage, message) вызывается с прогрессом.
     """
-    def _cb(stage, msg):
+    def _cb(stage: str, msg: str) -> None:
         if callback:
             callback(stage, msg)
 
-    _cb("check", "Checking latest version...")
+    _cb("check", "Проверка последней версии...")
     current = get_installed_version()
     latest, url = get_latest_version()
 
     if not latest:
-        return False, "Failed to fetch latest version from GitHub"
-
+        return False, "Не удалось получить последнюю версию с GitHub"
     if not url:
-        return False, f"No download URL for architecture: {platform.machine()}"
-
+        return False, f"Нет URL для архитектуры: {platform.machine()}"
     if current and current == latest:
-        return True, f"Already on latest version: v{latest}"
+        return True, f"Уже установлена последняя версия: v{latest}"
 
-    _cb("download", f"Downloading v{latest}...")
+    _cb("download", f"Скачивание v{latest}...")
 
     xray_bin = find_xray_binary() or "/usr/local/bin/xray"
-    tmp_dir = "/tmp/xray-update"
+    tmp_dir  = "/tmp/xray-update"
 
     try:
-        # Clean up previous attempts
         if os.path.exists(tmp_dir):
             shutil.rmtree(tmp_dir)
         os.makedirs(tmp_dir, exist_ok=True)
 
         zip_path = os.path.join(tmp_dir, "xray.zip")
-
-        # Download
-        req = Request(url, headers={"User-Agent": "xray-monitor"})
+        req  = Request(url, headers={"User-Agent": "xray-monitor"})
         data = urlopen(req, timeout=60).read()
         with open(zip_path, "wb") as f:
             f.write(data)
 
-        _cb("extract", "Extracting...")
-
-        # Extract
+        _cb("extract", "Распаковка...")
         import zipfile
         with zipfile.ZipFile(zip_path, "r") as zf:
             zf.extractall(tmp_dir)
 
         new_bin = os.path.join(tmp_dir, "xray")
         if not os.path.isfile(new_bin):
-            return False, "xray binary not found in archive"
+            return False, "xray binary не найден в архиве"
 
-        # Verify the new binary works
         os.chmod(new_bin, 0o755)
         r = subprocess.run([new_bin, "version"], capture_output=True, text=True, timeout=5)
         if r.returncode != 0:
-            return False, f"New binary failed verification: {r.stderr}"
+            return False, f"Новый binary не прошёл проверку: {r.stderr}"
 
-        _cb("install", "Installing...")
+        _cb("install", "Установка...")
 
-        # Stop xray before replacing binary
         was_running = get_xray_status()["running"]
         if was_running:
             stop_xray()
             time.sleep(1)
 
-        # Backup old binary
         if os.path.isfile(xray_bin):
-            backup = f"{xray_bin}.bak"
-            shutil.copy2(xray_bin, backup)
+            shutil.copy2(xray_bin, f"{xray_bin}.bak")
 
-        # Install new binary
         shutil.copy2(new_bin, xray_bin)
         os.chmod(xray_bin, 0o755)
 
-        # Also update geodata if present in archive
         for geofile in ["geoip.dat", "geosite.dat"]:
             src = os.path.join(tmp_dir, geofile)
             if os.path.isfile(src):
                 dst_dir = os.path.dirname(xray_bin)
-                # Try standard locations
                 for dest in [
                     os.path.join(dst_dir, geofile),
                     f"/usr/local/share/xray/{geofile}",
                     f"/usr/share/xray/{geofile}",
                 ]:
-                    dest_dir = os.path.dirname(dest)
-                    if os.path.isdir(dest_dir):
+                    if os.path.isdir(os.path.dirname(dest)):
                         shutil.copy2(src, dest)
                         break
 
-        # Restart if was running
         if was_running:
-            _cb("restart", "Restarting xray...")
+            _cb("restart", "Перезапуск xray...")
             time.sleep(1)
             start_xray()
 
-        # Cleanup
         shutil.rmtree(tmp_dir, ignore_errors=True)
-
-        # Clear version cache
         _version_cache.clear()
 
         new_ver = get_installed_version() or latest
-        msg = f"Updated: v{current or '?'} -> v{new_ver}"
+        msg = f"Обновлено: v{current or '?'} -> v{new_ver}"
         _cb("done", msg)
         return True, msg
 
     except Exception as e:
-        # Cleanup on error
         shutil.rmtree(tmp_dir, ignore_errors=True)
-        return False, f"Update failed: {e}"
+        return False, f"Ошибка обновления: {e}"
 
 
 def update_xray_async(callback: Optional[Callable] = None,
-                      done_callback: Optional[Callable] = None):
-    """Run xray update in background thread."""
-    def _run():
+                      done_callback: Optional[Callable] = None) -> threading.Thread:
+    """Запускает обновление в фоновом потоке."""
+    def _run() -> None:
         ok, msg = update_xray_core(callback=callback)
         if done_callback:
             done_callback(ok, msg)

@@ -1,4 +1,5 @@
-"""Formatting helpers, clipboard, QR code."""
+"""Форматирование, буфер обмена, QR-код."""
+
 from __future__ import annotations
 
 import os
@@ -28,9 +29,9 @@ except ImportError:
     HAS_PSUTIL = False
 
 
-# ── Byte / speed / time formatting ──────────────────────────
+# ── Форматирование байт / скорости / времени ─────────────────
 
-def fmt_b(n) -> str:
+def fmt_b(n: int | float) -> str:
     n = int(n)
     if n < 0: return f"-{fmt_b(-n)}"
     if n == 0: return "0 B"
@@ -40,7 +41,7 @@ def fmt_b(n) -> str:
     return f"{n:.1f} PB"
 
 
-def fmt_s(b) -> str:
+def fmt_s(b: float) -> str:
     b = max(0.0, float(b))
     for u in ("B/s", "KB/s", "MB/s", "GB/s"):
         if b < 1024: return f"{b:.1f} {u}"
@@ -48,7 +49,7 @@ def fmt_s(b) -> str:
     return f"{b:.1f} TB/s"
 
 
-def fmt_up(s) -> str:
+def fmt_up(s: int | float) -> str:
     s = int(s); d, s = divmod(s, 86400); h, s = divmod(s, 3600); m, s = divmod(s, 60)
     p = []
     if d: p.append(f"{d}d")
@@ -58,13 +59,14 @@ def fmt_up(s) -> str:
     return " ".join(p)
 
 
-def fmt_ts(ts) -> str:
+def fmt_ts(ts: float) -> str:
     return datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts > 0 else "—"
 
 
-# ── Sparkline / gauge / bar ─────────────────────────────────
+# ── Sparkline / gauge / bar ──────────────────────────────────
 
 SP = "▁▂▃▄▅▆▇█"
+
 
 def spark(vals, w: int = 30) -> str:
     if not vals: return "▁" * w
@@ -74,18 +76,18 @@ def spark(vals, w: int = 30) -> str:
     return "".join(SP[min(int((x - mn) / rng * 7), 7)] for x in v)
 
 
-def gauge(val, mx, w: int = 20) -> str:
+def gauge(val: float, mx: float, w: int = 20) -> str:
     if mx <= 0: return "░" * w
     f = int(min(1.0, val / mx) * w)
     return "█" * f + "░" * (w - f)
 
 
-def pct_bar(pct, w: int = 20) -> str:
+def pct_bar(pct: float, w: int = 20) -> str:
     f = int(pct / 100 * w)
     return "".join("█" if i < f else "░" for i in range(w))
 
 
-def pct_col(pct) -> str:
+def pct_col(pct: float) -> str:
     if pct > 85: return C["err"]
     if pct > 60: return C["warn"]
     return C["ok"]
@@ -95,13 +97,17 @@ H = "─"
 V = "│"
 
 
-# ── QR code ─────────────────────────────────────────────────
+# ── QR-код ───────────────────────────────────────────────────
 
-def qr_to_lines(data: str, border: int = 1):
-    if not HAS_QR:
+def qr_to_lines(data: str, border: int = 1) -> list:
+    if not HAS_QR or _qrcode is None:
         return ["[pip install qrcode]"]
-    qr = _qrcode.QRCode(error_correction=_qrcode.constants.ERROR_CORRECT_L,
-                         box_size=1, border=border)
+    import qrcode.constants  # type: ignore[import-untyped]
+    qr = _qrcode.QRCode(
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=1,
+        border=border,
+    )
     qr.add_data(data); qr.make(fit=True)
     matrix = qr.get_matrix()
     lines = []
@@ -117,7 +123,7 @@ def qr_to_lines(data: str, border: int = 1):
     return lines
 
 
-# ── Clipboard ───────────────────────────────────────────────
+# ── Буфер обмена ─────────────────────────────────────────────
 
 def copy_to_clipboard(text: str) -> bool:
     for cmd in [["xclip", "-selection", "clipboard"],

@@ -176,7 +176,7 @@ After=network.target xray.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/xray-monitor --server 127.0.0.1:10085 --config /usr/local/etc/xray/config.json --lang ru
+ExecStart=/usr/local/bin/xray-monitor --server 127.0.0.1:10085 --config /usr/local/etc/xray/config.json
 Restart=on-failure
 RestartSec=5
 StandardInput=tty
@@ -215,10 +215,9 @@ echo " Usage:"
 echo "   xray-monitor                          # default settings"
 echo "   xray-monitor -s 127.0.0.1:10085       # custom gRPC address"
 echo "   xray-monitor -c /path/to/config.json  # custom config"
-echo "   xray-monitor --lang en                # English UI"
 echo ""
 echo " Keys:"
-echo "   q=quit  r=reconnect  s=sort  z=reset  p=pause  l=lang"
+echo "   q=quit  r=reconnect  s=sort  z=reset  p=pause"
 echo "   Q=QR    e=nano       R=restart xray   C=check  B=rollback"
 echo "   S=start X=stop       U=update xray    E=enable/disable"
 echo "   1-6=tabs  f=filter"

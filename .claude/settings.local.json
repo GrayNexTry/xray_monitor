@@ -8,7 +8,9 @@
       "Bash(do /c/Users/wwwne/OneDrive/Документы/xray_monitor/.venv/Scripts/python.exe -c \"import ast; ast.parse\\(open\\(''$f''\\).read\\(\\)\\); print\\(''OK: $f''\\)\")",
       "Bash(echo \"FAIL: $f\")",
       "Bash(done)",
-      "Bash(.venv/Scripts/python.exe -c \":*)"
+      "Bash(.venv/Scripts/python.exe -c \":*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }

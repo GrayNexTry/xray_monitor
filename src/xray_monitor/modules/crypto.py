@@ -1,4 +1,4 @@
-"""X25519 key generation and UUID helpers."""
+"""Генерация ключей X25519 и UUID."""
 
 import os
 import uuid
@@ -17,7 +17,7 @@ def gen_short_id(length: int = 8) -> str:
 
 
 def gen_x25519_keypair():
-    """X25519 keypair. Tries xray binary, then cryptography lib, then pure-python."""
+    """Пара ключей X25519. Пробует xray, затем cryptography, затем pure-python."""
     for xray_bin in ["/usr/local/bin/xray", "/usr/bin/xray", "xray"]:
         try:
             r = subprocess.run([xray_bin, "x25519"],
@@ -49,7 +49,7 @@ def gen_x25519_keypair():
 
 
 def _pure_python_x25519_keypair():
-    """Pure-Python Montgomery ladder (RFC 7748)."""
+    """Pure-Python реализация X25519 (RFC 7748)."""
     PRIME = (2 ** 255) - 19
 
     def clamp(k: bytes) -> bytes:
@@ -91,7 +91,7 @@ def _pure_python_x25519_keypair():
 
 
 def derive_public_key(private_key_b64: str) -> str:
-    """Compute X25519 public key from private (base64url)."""
+    """Вычисляет публичный ключ X25519 из приватного (base64url)."""
     for xray_bin in ["/usr/local/bin/xray", "/usr/bin/xray", "xray"]:
         try:
             r = subprocess.run([xray_bin, "x25519", "-i", private_key_b64],

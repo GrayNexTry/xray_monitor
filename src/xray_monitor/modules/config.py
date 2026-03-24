@@ -1,4 +1,6 @@
-"""Xray config.json parser and client URL builder."""
+"""Парсер config.json Xray и построитель URL клиентов."""
+
+from __future__ import annotations
 
 import os
 import json
@@ -8,9 +10,9 @@ from .crypto import derive_public_key
 
 
 class XrayConfig:
-    def __init__(self, path="/usr/local/etc/xray/config.json"):
+    def __init__(self, path: str = "/usr/local/etc/xray/config.json") -> None:
         self.path   = path
-        self._data: dict  = {}
+        self._data:  dict  = {}
         self._mtime: float = 0
 
     def reload(self) -> dict:
@@ -55,23 +57,23 @@ class XrayConfig:
                 if url is None:
                     continue
                 results.append({
-                    "email":       client.get("email", ""),
-                    "uuid":        client.get("id", ""),
-                    "tag":         tag,
-                    "port":        port,
-                    "protocol":    proto,
-                    "network":     network,
-                    "security":    security,
-                    "flow":        client.get("flow", ""),
-                    "short_ids":   sids,
+                    "email":        client.get("email", ""),
+                    "uuid":         client.get("id", ""),
+                    "tag":          tag,
+                    "port":         port,
+                    "protocol":     proto,
+                    "network":      network,
+                    "security":     security,
+                    "flow":         client.get("flow", ""),
+                    "short_ids":    sids,
                     "server_names": sns,
-                    "sni":         sni,
-                    "url":         url,
+                    "sni":          sni,
+                    "url":          url,
                 })
         return results
 
-    def _build_transport_params(self, ss, network):
-        transport_params = {"type": network}
+    def _build_transport_params(self, ss: dict, network: str) -> dict:
+        transport_params: dict = {"type": network}
 
         if network == "tcp":
             tcp = ss.get("tcpSettings", {})
@@ -81,8 +83,9 @@ class XrayConfig:
                 paths = req.get("path", [])
                 transport_params["path"] = paths[0] if paths else "/"
                 hdrs = req.get("headers", {})
-                host = hdrs.get("Host", hdrs.get("host", [""]))[0] if isinstance(
-                    hdrs.get("Host", hdrs.get("host", "")), list) else hdrs.get("Host", hdrs.get("host", ""))
+                host = (hdrs.get("Host", hdrs.get("host", [""]))[0]
+                        if isinstance(hdrs.get("Host", hdrs.get("host", "")), list)
+                        else hdrs.get("Host", hdrs.get("host", "")))
                 if host: transport_params["host"] = host
                 transport_params["headerType"] = "http"
 
@@ -117,11 +120,11 @@ class XrayConfig:
 
         return transport_params
 
-    def _build_security_params(self, ss, security):
-        security_params = {}
+    def _build_security_params(self, ss: dict, security: str) -> tuple:
+        security_params: dict = {}
         rs  = ss.get("realitySettings", {})
         tls = ss.get("tlsSettings", {})
-        sns = []; sids = []; sni = ""
+        sns: list = []; sids: list = []; sni = ""
 
         if security == "reality":
             priv    = rs.get("privateKey", "")
@@ -186,7 +189,7 @@ class XrayConfig:
             if not uid: return None
             import json as _json, base64 as _b64
             security_c = client.get("security", "auto")
-            obj = {
+            obj: dict = {
                 "v": "2", "ps": remark, "add": ip, "port": str(port),
                 "id": uid, "scy": security_c, "net": network,
                 "tls": security if security == "tls" else "",
@@ -200,8 +203,8 @@ class XrayConfig:
                     paths = req.get("path", [])
                     obj["path"] = paths[0] if paths else "/"
                     hdrs = req.get("headers", {})
-                    host = hdrs.get("Host", hdrs.get("host", [""]))[0] if isinstance(
-                        hdrs.get("Host", hdrs.get("host", "")), list) else ""
+                    host = (hdrs.get("Host", hdrs.get("host", [""]))[0]
+                            if isinstance(hdrs.get("Host", hdrs.get("host", "")), list) else "")
                     if host: obj["host"] = host
             elif network == "ws":
                 ws = ss.get("wsSettings", {})
@@ -218,10 +221,10 @@ class XrayConfig:
                 obj["host"] = xh.get("host", "")
                 obj["type"] = xh.get("mode", "auto")
             if security == "tls":
-                tls = ss.get("tlsSettings", {})
-                sni_v = tls.get("serverName", "")
-                fp_v  = tls.get("settings", {}).get("fingerprint", "")
-                alpn  = tls.get("alpn", [])
+                tls_cfg = ss.get("tlsSettings", {})
+                sni_v = tls_cfg.get("serverName", "")
+                fp_v  = tls_cfg.get("settings", {}).get("fingerprint", "")
+                alpn  = tls_cfg.get("alpn", [])
                 if sni_v: obj["sni"] = sni_v
                 if fp_v:  obj["fp"]  = fp_v
                 if alpn:  obj["alpn"] = ",".join(alpn) if isinstance(alpn, list) else alpn

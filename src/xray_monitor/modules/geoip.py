@@ -1,4 +1,6 @@
-"""GeoIP lookup via ip-api.com with TTL-based LRU cache."""
+"""GeoIP поиск через ip-api.com с TTL-кэшем (LRU)."""
+
+from __future__ import annotations
 
 import json
 import time
@@ -9,9 +11,9 @@ from typing import Optional
 from urllib.request import urlopen
 
 _CACHE_MAX = 1500
-_CACHE_TTL = 3600  # 1 hour
-_PENDING_TIMEOUT = 30  # seconds before retrying a pending lookup
-_MAX_CONCURRENT = 5    # max concurrent fetch threads
+_CACHE_TTL = 3600          # 1 час
+_PENDING_TIMEOUT = 30      # секунд до повторной попытки
+_MAX_CONCURRENT = 5        # макс. параллельных запросов
 
 _FAIL = {"cc": "??", "country": "?", "city": "", "isp": "",
          "asn": "", "asname": "", "hosting": False}
@@ -23,9 +25,9 @@ def _flag(cc: str) -> str:
 
 
 class GeoIP:
-    def __init__(self):
-        self._cache: OrderedDict = OrderedDict()  # ip -> (timestamp, data)
-        self._pending: dict = {}  # ip -> timestamp (when fetch started)
+    def __init__(self) -> None:
+        self._cache: OrderedDict = OrderedDict()   # ip -> (timestamp, data)
+        self._pending: dict = {}                   # ip -> timestamp
         self._lock = threading.Lock()
         self._semaphore = threading.Semaphore(_MAX_CONCURRENT)
 
@@ -41,30 +43,24 @@ class GeoIP:
 
         now = time.monotonic()
         with self._lock:
-            # Check cache with TTL
             if clean in self._cache:
                 ts, data = self._cache[clean]
                 if now - ts < _CACHE_TTL:
                     self._cache.move_to_end(clean)
                     return data
-                else:
-                    del self._cache[clean]
+                del self._cache[clean]
 
-            # Check pending — allow retry after timeout
             if clean in self._pending:
                 if now - self._pending[clean] < _PENDING_TIMEOUT:
                     return None
-                # Timed out, allow re-fetch
                 del self._pending[clean]
 
-            # Mark as pending INSIDE the lock to prevent duplicate fetches
             self._pending[clean] = now
 
         threading.Thread(target=self._fetch, args=(clean,), daemon=True).start()
         return None
 
-    def _fetch(self, ip: str):
-        # Rate limit concurrent fetches
+    def _fetch(self, ip: str) -> None:
         if not self._semaphore.acquire(timeout=5):
             with self._lock:
                 self._pending.pop(ip, None)
@@ -76,7 +72,7 @@ class GeoIP:
                 timeout=5).read()
             r = json.loads(raw)
             if r.get("status") == "success":
-                res = {
+                res: dict = {
                     "cc":      r.get("countryCode", ""),
                     "country": r.get("country", ""),
                     "city":    r.get("city", ""),
@@ -94,7 +90,6 @@ class GeoIP:
 
         now = time.monotonic()
         with self._lock:
-            # LRU eviction
             while len(self._cache) >= _CACHE_MAX:
                 self._cache.popitem(last=False)
             self._cache[ip] = (now, res)
@@ -103,7 +98,7 @@ class GeoIP:
     def fmt(self, ip: str) -> str:
         info = self.lookup(ip)
         if not info: return "..."
-        cc = info.get("cc", "??")
+        cc   = info.get("cc", "??")
         city = info.get("city", "")
         return f"{_flag(cc)} {cc}" + (f" {city[:14]}" if city else "")
 

@@ -1,7 +1,7 @@
-"""Minimal hand-rolled protobuf encoder/decoder."""
+"""Минимальный ручной кодировщик/декодировщик protobuf."""
 
 
-def encode_varint(v):
+def encode_varint(v: int) -> bytes:
     r = []
     while v > 0x7F:
         r.append((v & 0x7F) | 0x80)
@@ -10,7 +10,7 @@ def encode_varint(v):
     return bytes(r)
 
 
-def read_varint(d, o):
+def read_varint(d: bytes, o: int) -> tuple:
     r = s = 0
     while o < len(d):
         b = d[o]; r |= (b & 0x7F) << s; o += 1
@@ -19,7 +19,7 @@ def read_varint(d, o):
     return r, o
 
 
-def iter_fields(d):
+def iter_fields(d: bytes):
     o = 0
     while o < len(d):
         tag, o = read_varint(d, o)
@@ -31,10 +31,10 @@ def iter_fields(d):
         else: break
 
 
-def encode_string(f, s):
+def encode_string(f: int, s: str) -> bytes:
     b = s.encode()
     return bytes([(f << 3) | 2]) + encode_varint(len(b)) + b
 
 
-def encode_bool(f, v):
+def encode_bool(f: int, v: bool) -> bytes:
     return bytes([(f << 3), 1]) if v else b""
