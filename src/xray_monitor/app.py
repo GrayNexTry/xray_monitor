@@ -116,11 +116,51 @@ class XrayMonitor(App):
     @property
     def L(self): return LANG.get(self.lang_key, LANG["ru"])
 
+    def _refresh_language(self):
+        # global text state
+        self.sub_title = self.L["title"]
+
+        # tab labels (border_title works for TabPane)
+        tab_map = {
+            "tab-dash": "tab_dashboard",
+            "tab-keys": "tab_keys",
+            "tab-sys": "tab_system",
+            "tab-log": "tab_logs",
+            "tab-conn": "tab_connections",
+            "tab-mgmt": "tab_mgmt",
+        }
+        for tid, lkey in tab_map.items():
+            try:
+                pane = self.query_one(f"#{tid}")
+                if hasattr(pane, "border_title"):
+                    pane.border_title = self.L[lkey]
+            except Exception:
+                pass
+
+        # placeholders
+        try:
+            self.query_one("#filter-input", Input).placeholder = self.L.get("filter_placeholder", "")
+        except Exception:
+            pass
+        try:
+            self.query_one("#inp-server", Input).placeholder = self.L.get("server_ip_placeholder", "")
+        except Exception:
+            pass
+
+        # redraw the visible content
+        if self._last_d is not None:
+            self._draw(self._last_d)
+        self._draw_keys_panel()
+        self._draw_system_tab()
+        self._draw_log()
+        self._draw_conn()
+        self._draw_mgmt_tab()
+
     def watch_lang_key(self, new_lang: str):
         """Refresh content when language changes."""
         try:
-            # Force refresh of management tab on next tick
             self._mgmt_last_update = 0
+            self._refresh_language()
         except Exception:
             pass
 
@@ -663,7 +703,7 @@ class XrayMonitor(App):
 
     def action_toggle_lang(self):
         self.lang_key = "ru" if self.lang_key == "en" else "en"
-        self.sub_title = self.L["title"]
+        self._refresh_language()
         self.notify(self.L["lang_switched"])
 
     def action_toggle_pause(self):
