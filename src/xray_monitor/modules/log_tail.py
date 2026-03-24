@@ -16,7 +16,7 @@ _RE_IPV4         = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 # Парсинг клиентских подключений из access.log
 # Формат: "2026/01/01 12:00:00 1.2.3.4:54321 accepted tcp:... email: user@tag"
 # или IPv6: "[::1]:54321 accepted ..."
-_RE_LOG_TS  = re.compile(r"^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s")
+_RE_LOG_TS  = re.compile(r"^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})")
 _RE_SRC_IP  = re.compile(
     r"(?:^|\s)(\d{1,3}(?:\.\d{1,3}){3}):\d+\s+accepted"
     r"|(?:^|\s)\[([0-9a-fA-F:]+)\]:\d+\s+accepted"

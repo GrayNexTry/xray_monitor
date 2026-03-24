@@ -83,11 +83,13 @@ class XrayStats:
 
     # ── Внутренние вспомогательные методы ────────────────────
 
-    def _track(self, online_set: list, user_ips: dict, geo: Any) -> None:
+    def _track(self, online_set: list, user_ips: dict,
+               log_ips: dict | None = None) -> None:
         """Отслеживает события подключения/отключения. Вызывается под self._lock.
 
         user_ips  — IP от gRPC GetStatsOnlineIpList (только текущие активные)
-        _prev_ips — хранит ТОЛЬКО gRPC IP (не лог), чтобы grpc_online_ips был точным
+        log_ips   — IP из access.log — используются ТОЛЬКО для обогащения событий IP,
+                    НЕ записываются в _prev_ips (чтобы не помечать исторические IP онлайн)
         """
         cur = set(online_set)
 
@@ -108,13 +110,21 @@ class XrayStats:
                 users_with_ip_events.add(email)
             self._prev_ips[email] = ip_set
 
-        # Для пользователей без IP создаём событие без адреса
+        # Для пользователей без gRPC IP — ищем последний IP из лога
+        def _latest_log_ip(email: str) -> str:
+            if not log_ips or email not in log_ips:
+                return ""
+            ips = log_ips[email]
+            if not ips:
+                return ""
+            return max(ips, key=lambda ip: ips[ip])
+
         for u in cur - self._prev_online:
             if u not in users_with_ip_events:
-                self.conn_events.append(ConnEvent("connect", u))
+                self.conn_events.append(ConnEvent("connect", u, _latest_log_ip(u)))
         for u in self._prev_online - cur:
             if u not in users_with_ip_events:
-                self.conn_events.append(ConnEvent("disconnect", u))
+                self.conn_events.append(ConnEvent("disconnect", u, _latest_log_ip(u)))
 
         self._prev_online = cur
 
@@ -157,7 +167,7 @@ class XrayStats:
             self.sess_up  = 0.0
             self.sess_dn  = 0.0
 
-    def fetch(self, geo: Any = None, log_ips: dict | None = None) -> dict:  # log_ips unused, kept for compat
+    def fetch(self, log_ips: dict | None = None) -> dict:
         if not self.stub:
             self.connect()
         stub = self.stub
@@ -232,9 +242,9 @@ class XrayStats:
                         if ips: R["user_ips"][em] = ips
                     except Exception:
                         pass
-                if geo:
-                    with self._lock:
-                        self._track(R["online_users"], R["user_ips"], geo)
+                with self._lock:
+                    self._track(R["online_users"], R["user_ips"],
+                                log_ips=log_ips)
             except Exception:
                 pass
 
