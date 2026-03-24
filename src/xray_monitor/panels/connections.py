@@ -32,22 +32,26 @@ def render_connections(app: "XrayMonitor") -> Text:
     t.append(f" {L['conn_log']}\n", C["accent"])
     t.append("  " + H * 78 + "\n", C["dim"])
 
-    online_set = set(app.xray._prev_online)
+    # Текущие активные IP из gRPC (точный источник "онлайн")
+    grpc_online_ips: set = set()
+    for ips in app.xray._prev_ips.values():
+        grpc_online_ips.update(ips)
 
     # ── Сводная таблица IP ───────────────────────────────────
     # Собираем все известные IP из log_tail (за 24 ч) + текущие gRPC
-    all_ips: dict = {}  # ip -> {email, last_ts, online}
+    all_ips: dict = {}  # ip -> {email, ts, online}
 
     for email, ips in app.log_tail.client_ips.items():
         for ip, ts in ips.items():
             if ip not in all_ips or ts > all_ips[ip]["ts"]:
-                all_ips[ip] = {"email": email, "ts": ts, "online": False}
+                all_ips[ip] = {"email": email, "ts": ts,
+                                "online": ip in grpc_online_ips}
 
+    # Добавляем IP из gRPC если их нет в логе
     for email, ips in app.xray._prev_ips.items():
         for ip in ips:
             if ip not in all_ips:
-                all_ips[ip] = {"email": email, "ts": time.time(), "online": False}
-            all_ips[ip]["online"] = email in online_set
+                all_ips[ip] = {"email": email, "ts": time.time(), "online": True}
 
     if all_ips:
         # Сортируем: сначала онлайн, потом по времени
