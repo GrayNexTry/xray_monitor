@@ -202,7 +202,7 @@ LANG = {
         "rollback_error":"Ошибка отката: {err}",
         "error_msg":"ОШИБКА: {msg}",
         "error_label":"Ошибка: {err}",
-        "path_label":"Путь: {path}",
+        "path_label":"Путь:",
         "error_lower":"ошибка: {err}",
         "edit_config_hint":"[e] Открыть конфиг в nano (авто-бэкап)",
         "check_rollback":"[C] Проверка  [B] Откат к бэкапу",
