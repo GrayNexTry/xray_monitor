@@ -254,7 +254,9 @@ class XrayMonitor(App):
         t = Text()
         t.append(" ● ", C["err"] if err else C["online"])
         t.append(L["disconnected"] if err else L["connected"], "bold")
-        if err: t.append(f"  — {d['error']}", C["dim"])
+        if err:
+            t.append(f"  — {d['error']}", C["dim"])
+            t.append(f"  │  [6] Управление → S старт  R рестарт", C["warn"])
         t.append(f"  {V}  {self.xray.server}", C["dim"])
         t.append(f"  {V}  r{self.interval}s", C["dim"])
         if self.paused:
@@ -263,6 +265,13 @@ class XrayMonitor(App):
         if self.filter_txt: t.append(f"  /{self.filter_txt}", C["accent"])
         t.append(f"  #{self._tick_n}  {datetime.now():%H:%M:%S}", C["dim"])
         self.query_one(StatusBar).update(t)
+
+        # Управление всегда обновляется — не зависит от gRPC
+        now = time.time()
+        if now - self._mgmt_last_update > self._mgmt_update_interval:
+            self._mgmt_last_update = now
+            self._draw_mgmt_tab()
+
         if err: return
 
         self._draw_overview(d)
@@ -272,11 +281,6 @@ class XrayMonitor(App):
         self._draw_log()
         self._draw_conn()
         self._draw_system_tab()
-
-        now = time.time()
-        if now - self._mgmt_last_update > self._mgmt_update_interval:
-            self._mgmt_last_update = now
-            self._draw_mgmt_tab()
 
     # ── Draw-делегаторы ───────────────────────────────────────
 
