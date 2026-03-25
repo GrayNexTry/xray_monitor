@@ -8,6 +8,7 @@ from rich.text import Text
 
 from ..constants import C, L
 from ..utils import fmt_b, fmt_s, fmt_up, fmt_ts, spark, gauge, pct_col, H
+from ..modules.sni_radar import classify as _sni_classify
 
 if TYPE_CHECKING:
     from ..app import XrayMonitor
@@ -258,6 +259,25 @@ def render_users(app: "XrayMonitor", d: dict) -> Text:
                         asn_col = C["warn"] if is_hosting else C["dim"]
                         warn    = " [!datacenter]" if is_hosting else ""
                         t.append(f"{asn_str:<28}{warn}", asn_col)
+
+                # ── SNI Radar: теги сервисов ──────────────────
+                sni_buf = app.log_tail.ip_sni.get(ip)
+                if sni_buf:
+                    seen_tags: set = set()
+                    for domain, _ts in reversed(list(sni_buf)):
+                        cls = _sni_classify(domain)
+                        if cls and cls[0] not in seen_tags:
+                            _, label, col = cls
+                            t.append(f" [{label}]", C[col])
+                            seen_tags.add(cls[0])
+                            if len(seen_tags) >= 3:
+                                break
+
+                # ── Per-IP байты (суммарно за сессию/из БД) ──
+                ip_b = app.xray.ip_bytes.get(ip)
+                if ip_b and ip_b[1] > 1024:
+                    t.append(f"  {fmt_b(int(ip_b[1]))} dn", C["dn"])
+
                 t.append(f" {fmt_ts(ts)}\n", C["dim"])
 
         if idx < len(su_list)-1:

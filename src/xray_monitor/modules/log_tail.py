@@ -23,6 +23,13 @@ _RE_SRC_IP  = re.compile(
 )
 _RE_EMAIL   = re.compile(r"email:\s*(\S+)")
 
+# SNI/dest из строк с включённым sniffing:
+# "... email: user@tag -> rr1.googlevideo.com:443 tls:..."
+# или "... dest: googlevideo.com:443 ..."
+_RE_SNI     = re.compile(
+    r"(?:->|dest:)\s*([a-zA-Z][a-zA-Z0-9._-]{2,}\.[a-zA-Z]{2,}):\d+"
+)
+
 
 def _parse_log_ts(line: str, fallback: float) -> float:
     """Парсит timestamp из строки лога вида '2026/01/01 12:00:00 ...'."""
@@ -49,6 +56,10 @@ class LogTail:
         self._top_blocked: OrderedDict = OrderedDict()
         # IP-адреса клиентов из access.log: email -> {ip: last_seen_ts}
         self.client_ips: dict = {}
+        # SNI Radar: ip -> deque([(domain, ts), ...], maxlen=50) — кольцевой буфер
+        self.ip_sni: dict = {}
+        # Буфер новых хитов для записи в БД: ip -> {domain: (tag, count, last_ts)}
+        self._sni_flush: dict = {}
 
     def read(self) -> list:
         try:
@@ -93,6 +104,7 @@ class LogTail:
             now = time.time()
             block_count = 0
             new_client_ips: dict = {}
+            new_sni: dict = {}  # ip -> {domain: (tag, count, last_ts)}
             for line in chunk.splitlines():
                 ll = line.lower()
 
@@ -110,6 +122,25 @@ class LogTail:
                             # Берём наибольший timestamp для этого IP
                             prev_ts = new_client_ips[email].get(ip, 0)
                             new_client_ips[email][ip] = max(prev_ts, ts_line)
+
+                    # ── SNI Radar: парсим dest-домен ──────────────
+                    # Только если домен есть (sniffing включён в xray)
+                    m_sni = _RE_SNI.search(line)
+                    if m_sni and m_ip:
+                        domain = m_sni.group(1).lower()
+                        ip_sni = m_ip.group(1) or m_ip.group(2) or ""
+                        if ip_sni and domain and not domain.replace(".", "").isdigit():
+                            ts_line = _parse_log_ts(line, now)
+                            # Обновляем кольцевой буфер
+                            if ip_sni not in new_sni:
+                                new_sni[ip_sni] = {}
+                            entry = new_sni[ip_sni].get(domain)
+                            if entry is None:
+                                new_sni[ip_sni][domain] = (None, 1, ts_line)
+                            else:
+                                new_sni[ip_sni][domain] = (
+                                    entry[0], entry[1] + 1, max(entry[2], ts_line)
+                                )
 
                 if "-> block" not in ll and "->block" not in ll:
                     continue
@@ -155,6 +186,27 @@ class LogTail:
                     }
                     if not self.client_ips[email]:
                         del self.client_ips[email]
+
+                # ── Обновляем SNI-буферы ──────────────────────────
+                from .sni_radar import classify as _classify
+                for ip_sni_k, domains in new_sni.items():
+                    if ip_sni_k not in self.ip_sni:
+                        self.ip_sni[ip_sni_k] = deque(maxlen=50)
+                    for domain, (_, cnt, ts_d) in domains.items():
+                        self.ip_sni[ip_sni_k].append((domain, ts_d))
+                    # Обновляем flush-буфер (для записи в БД)
+                    if ip_sni_k not in self._sni_flush:
+                        self._sni_flush[ip_sni_k] = {}
+                    for domain, (_, cnt, ts_d) in domains.items():
+                        cls = _classify(domain)
+                        tag = cls[0] if cls else ""
+                        ex  = self._sni_flush[ip_sni_k].get(domain)
+                        if ex is None:
+                            self._sni_flush[ip_sni_k][domain] = (tag, cnt, ts_d)
+                        else:
+                            self._sni_flush[ip_sni_k][domain] = (
+                                tag or ex[0], ex[1] + cnt, max(ex[2], ts_d)
+                            )
         except Exception:
             pass
 
@@ -178,3 +230,22 @@ class LogTail:
         with self._lock:
             return sorted(self._top_blocked.items(),
                           key=lambda x: x[1], reverse=True)[:n]
+
+    def flush_new_sni(self) -> dict:
+        """Возвращает накопленные SNI-хиты и очищает буфер (для записи в БД)."""
+        with self._lock:
+            buf = self._sni_flush
+            self._sni_flush = {}
+        return buf
+
+    def load_sni_from_db(self, sni_data: dict) -> None:
+        """Загружает SNI-данные из БД при старте приложения.
+
+        sni_data: {ip: [(domain, tag, hits, last_seen), ...]}
+        """
+        with self._lock:
+            for ip, entries in sni_data.items():
+                if ip not in self.ip_sni:
+                    self.ip_sni[ip] = deque(maxlen=50)
+                for domain, _tag, _hits, last_seen in entries:
+                    self.ip_sni[ip].append((domain, last_seen))

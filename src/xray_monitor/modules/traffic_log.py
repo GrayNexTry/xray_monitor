@@ -46,6 +46,26 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT NOT NULL PRIMARY KEY,
     value TEXT NOT NULL DEFAULT ''
 );
+
+-- SNI Radar: накопленный трафик по IP-адресам клиентов
+CREATE TABLE IF NOT EXISTS ip_traffic (
+    ip      TEXT    NOT NULL PRIMARY KEY,
+    email   TEXT    NOT NULL DEFAULT '',
+    up      INTEGER NOT NULL DEFAULT 0,
+    dn      INTEGER NOT NULL DEFAULT 0,
+    updated INTEGER NOT NULL DEFAULT 0
+);
+
+-- SNI Radar: домены/сервисы которые посещал каждый IP
+CREATE TABLE IF NOT EXISTS ip_sni (
+    ip        TEXT    NOT NULL,
+    domain    TEXT    NOT NULL,
+    tag       TEXT    NOT NULL DEFAULT '',
+    hits      INTEGER NOT NULL DEFAULT 0,
+    last_seen INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (ip, domain)
+);
+CREATE INDEX IF NOT EXISTS idx_ip_sni_ip ON ip_sni(ip);
 """
 
 
@@ -289,3 +309,87 @@ class TrafficLog:
         """Суммарный трафик за последние N часов (только за сегодня)."""
         # SQLite не хранит часовую детализацию — возвращаем сегодняшние данные
         return self.get_today()
+
+    # ── SNI Radar: IP-трафик ─────────────────────────────────
+
+    def save_ip_bytes(self, ip_bytes: dict, email_for_ip: dict | None = None) -> None:
+        """Сохраняет накопленные байты по IP.
+
+        ip_bytes: {ip: [up, dn]}  — в памяти (накопленные с загрузки из БД).
+        email_for_ip: {ip: email} — опционально, для связи IP с пользователем.
+        """
+        if not ip_bytes:
+            return
+        import time as _time
+        now = int(_time.time())
+        rows = [
+            (ip, (email_for_ip or {}).get(ip, ""), int(vals[0]), int(vals[1]), now)
+            for ip, vals in ip_bytes.items()
+            if vals[0] > 0 or vals[1] > 0
+        ]
+        if not rows:
+            return
+        with _LOCK:
+            with self._conn:
+                self._conn.executemany(
+                    "INSERT INTO ip_traffic(ip, email, up, dn, updated) VALUES(?,?,?,?,?)"
+                    " ON CONFLICT(ip) DO UPDATE SET"
+                    " email=excluded.email, up=excluded.up, dn=excluded.dn,"
+                    " updated=excluded.updated",
+                    rows,
+                )
+
+    def load_ip_bytes(self) -> dict:
+        """Загружает [up, dn] по каждому IP из БД → {ip: [up, dn]}."""
+        with _LOCK:
+            rows = self._conn.execute(
+                "SELECT ip, up, dn FROM ip_traffic"
+            ).fetchall()
+        return {r[0]: [r[1], r[2]] for r in rows}
+
+    def save_ip_sni(self, sni_buf: dict) -> None:
+        """Сохраняет новые SNI-хиты.
+
+        sni_buf: {ip: {domain: (tag, count, last_ts)}}
+        """
+        if not sni_buf:
+            return
+        rows = []
+        for ip, domains in sni_buf.items():
+            for domain, (tag, count, last_ts) in domains.items():
+                rows.append((ip, domain, tag, count, int(last_ts)))
+        if not rows:
+            return
+        with _LOCK:
+            with self._conn:
+                self._conn.executemany(
+                    "INSERT INTO ip_sni(ip, domain, tag, hits, last_seen) VALUES(?,?,?,?,?)"
+                    " ON CONFLICT(ip, domain) DO UPDATE SET"
+                    " tag=excluded.tag,"
+                    " hits=hits+excluded.hits,"
+                    " last_seen=MAX(last_seen, excluded.last_seen)",
+                    rows,
+                )
+        # Ротация: удаляем старые записи (старше 30 дней)
+        import time as _time
+        cutoff = int(_time.time()) - 86400 * 30
+        with _LOCK:
+            with self._conn:
+                self._conn.execute(
+                    "DELETE FROM ip_sni WHERE last_seen < ?", (cutoff,)
+                )
+
+    def load_ip_sni(self) -> dict:
+        """Загружает SNI-данные из БД → {ip: [(domain, tag, hits, last_seen), ...]}."""
+        from collections import deque
+        with _LOCK:
+            rows = self._conn.execute(
+                "SELECT ip, domain, tag, hits, last_seen FROM ip_sni"
+                " ORDER BY last_seen DESC"
+            ).fetchall()
+        result: dict = {}
+        for ip, domain, tag, hits, last_seen in rows:
+            if ip not in result:
+                result[ip] = deque(maxlen=50)
+            result[ip].appendleft((domain, tag, hits, last_seen))
+        return result

@@ -51,6 +51,12 @@ class XrayStats:
         self._prev_log_ips: dict = {}   # email -> {ip: ts} — предыдущий снимок лога
         self._log_initialized: bool = False  # первый снимок не генерирует события
 
+        # SNI Radar: накопленные байты по IP (пропорциональная оценка)
+        # {ip: [up, dn]}  — начальное значение загружается из БД при старте
+        self.ip_bytes: dict = {}
+        # Маппинг ip -> email (для БД)
+        self.ip_email: dict = {}
+
     # ── Подключение ──────────────────────────────────────────
 
     def connect(self) -> None:
@@ -261,6 +267,26 @@ class XrayStats:
                         sd = max(0, (ud["downlink"] - pd) / dt)
                         self.u_speed[em] = {"su": su, "sd": sd}
                         self._update_user_hist(em, su, sd)
+
+                        # ── Per-IP byte accumulation ──────────────
+                        delta_up = max(0, ud["uplink"]   - pu)
+                        delta_dn = max(0, ud["downlink"] - pd)
+                        if (delta_up > 0 or delta_dn > 0) and log_ips:
+                            active_ips = list((log_ips.get(em) or {}).keys())
+                            if active_ips:
+                                per = len(active_ips)
+                                for ip in active_ips:
+                                    self.ip_email[ip] = em
+                                    entry = self.ip_bytes.get(ip)
+                                    if entry is None:
+                                        self.ip_bytes[ip] = [
+                                            delta_up / per,
+                                            delta_dn / per,
+                                        ]
+                                    else:
+                                        entry[0] += delta_up / per
+                                        entry[1] += delta_dn / per
+
                     if self._fetch_n % _PRUNE_INTERVAL == 0:
                         self._prune_stale(active_users)
 

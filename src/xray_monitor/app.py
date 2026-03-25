@@ -215,6 +215,18 @@ class XrayMonitor(App):
         for h in self._ping_hosts:
             self.sys_s.ping(h)
         self.call_later(self._init_keys_from_config)
+        # Загружаем накопленные IP-данные из БД (SNI + байты)
+        threading.Thread(target=self._load_ip_data_from_db, daemon=True).start()
+
+    def _load_ip_data_from_db(self) -> None:
+        """Загружает SNI и байты по IP из SQLite в память (фоновый поток)."""
+        try:
+            stored_bytes = self.traffic_log.load_ip_bytes()
+            self.xray.ip_bytes.update(stored_bytes)
+            stored_sni = self.traffic_log.load_ip_sni()
+            self.log_tail.load_sni_from_db(stored_sni)
+        except Exception:
+            pass
 
     # ── Events ───────────────────────────────────────────────
 
@@ -273,6 +285,15 @@ class XrayMonitor(App):
             d = self.xray.fetch(log_ips=log_snap)
             if "error" not in d and d.get("users"):
                 self.traffic_log.update(d["users"])   # SQLite с WAL — быстро
+            # ── SNI Radar: сохраняем в БД каждые 10 тиков ────
+            if self._tick_n % 10 == 0:
+                sni_buf = self.log_tail.flush_new_sni()
+                if sni_buf:
+                    self.traffic_log.save_ip_sni(sni_buf)
+                if self.xray.ip_bytes:
+                    self.traffic_log.save_ip_bytes(
+                        self.xray.ip_bytes, self.xray.ip_email
+                    )
             self.call_from_thread(lambda: self._after_tick(d))
         except Exception as e:
             err_msg = str(e)

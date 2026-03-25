@@ -13,7 +13,18 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(curl -s \"https://raw.githubusercontent.com/XTLS/Xray-core/cb7bfeb54c79d7e81ee1f9d8c6a7e0a2125ab898/app/stats/command/command.proto\")",
       "Bash(curl -s \"https://raw.githubusercontent.com/XTLS/Xray-core/cb7bfeb54c79d7e81ee1f9d8c6a7e0a2125ab898/app/stats/command/command.go\")",
-      "Bash(curl -s \"https://raw.githubusercontent.com/XTLS/Xray-core/cb7bfeb54c79d7e81ee1f9d8c6a7e0a2125ab898/main/commands/all/api/stats_online_ip_list.go\")"
+      "Bash(curl -s \"https://raw.githubusercontent.com/XTLS/Xray-core/cb7bfeb54c79d7e81ee1f9d8c6a7e0a2125ab898/main/commands/all/api/stats_online_ip_list.go\")",
+      "Bash(python -c \":*)",
+      "Bash(python3 -c \":*)",
+      "Bash(where py:*)",
+      "Bash(where python3.11)",
+      "Bash(where python3:*)",
+      "Bash(python3.exe -c \"from src.xray_monitor.modules.sni_radar import classify; from src.xray_monitor.modules.log_tail import LogTail; from src.xray_monitor.modules.stats import XrayStats; from src.xray_monitor.modules.traffic_log import TrafficLog; print\\(''OK''\\)\")",
+      "Bash(echo \"exit: $?\")",
+      "Read(//c/Users/wwwne/AppData/Local/Programs/**)",
+      "Bash(ls /c/Python3*)",
+      "Read(//c/Users/wwwne/**)",
+      "Bash(\"/c/Users/wwwne/.local/bin/python3.14.exe\" -c \":*)"
     ]
   }
 }
