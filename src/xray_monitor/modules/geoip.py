@@ -48,8 +48,7 @@ except ImportError:
 
 
 def _flag(cc: str) -> str:
-    if not cc or len(cc) != 2: return ""
-    return "".join(chr(0x1F1E6 + ord(c) - ord("A")) for c in cc.upper())
+    return ""  # emoji флаги не поддерживаются в большинстве SSH-терминалов
 
 
 class GeoIP:
@@ -216,9 +215,11 @@ class GeoIP:
     def fmt(self, ip: str) -> str:
         info = self.lookup(ip)
         if not info: return "..."
-        cc   = info.get("cc", "??")
-        city = info.get("city", "")
-        return f"{_flag(cc)} {cc}" + (f" {city[:14]}" if city else "")
+        cc     = info.get("cc", "??")
+        city   = info.get("city", "")
+        asname = info.get("asname", "")
+        detail = city[:14] if city else asname[:14]
+        return f"{cc}" + (f" {detail}" if detail else "")
 
     def fmt_full(self, ip: str) -> tuple:
         info = self.lookup(ip)
@@ -230,6 +231,8 @@ class GeoIP:
         hosting = info.get("hosting", False)
         asn_num  = asn.split()[0] if asn else ""
         asn_name = asname[:22] if asname else (asn[len(asn_num):].strip()[:22] if asn_num else "")
-        geo_str  = f"{_flag(cc)} {cc}" + (f" {city[:12]}" if city else "")
-        asn_str  = f"{asn_num} {asn_name}".strip()
+        # Если нет города — показываем провайдера как подсказку
+        detail  = city[:12] if city else asname[:12]
+        geo_str = f"{cc}" + (f" {detail}" if detail else "")
+        asn_str = f"{asn_num} {asn_name}".strip()
         return geo_str, asn_str, hosting
