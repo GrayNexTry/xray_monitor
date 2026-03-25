@@ -201,6 +201,70 @@ else
     spinner_stop "Зависимости установлены"
 fi
 
+# ── MaxMind GeoLite2 (офлайн геолокация) ─────────────────────
+
+MMDB_DIR="$INSTALL_DIR"
+CITY_DB="$MMDB_DIR/GeoLite2-City.mmdb"
+ASN_DB="$MMDB_DIR/GeoLite2-ASN.mmdb"
+MMDB_ALREADY=false
+
+if [[ -f "$CITY_DB" ]]; then
+    MMDB_ALREADY=true
+fi
+
+# На обновлении не переспрашиваем если уже установлено
+if $IS_UPDATE && $MMDB_ALREADY; then
+    spinner_start "Обновляем GeoLite2 базы..."
+    if curl -fsSL "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb" \
+            -o "$CITY_DB.tmp" 2>>"$PIP_LOG" && mv "$CITY_DB.tmp" "$CITY_DB"; then
+        curl -fsSL "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-ASN.mmdb" \
+            -o "$ASN_DB.tmp" 2>>"$PIP_LOG" && mv "$ASN_DB.tmp" "$ASN_DB" || true
+        spinner_stop "GeoLite2 базы обновлены"
+    else
+        spinner_stop
+        warn "Не удалось обновить GeoLite2 — оставляем старые файлы"
+    fi
+elif ! $IS_UPDATE; then
+    echo ""
+    echo -e "${CYAN}━━━ Геолокация ━━━${NC}"
+    echo ""
+    echo " Выберите источник геолокации:"
+    echo "   1) MaxMind GeoLite2 — офлайн, без лимитов (скачать ~60 MB)"
+    echo "   2) ip-api.com       — онлайн, 45 req/min (работает без настройки)"
+    echo ""
+    read -rp "   Ваш выбор [1/2, Enter=2]: " GEO_CHOICE
+    GEO_CHOICE="${GEO_CHOICE:-2}"
+
+    if [[ "$GEO_CHOICE" == "1" ]]; then
+        echo ""
+        spinner_start "Устанавливаем maxminddb..."
+        pip_run "$VENV_DIR/bin/pip" install --prefer-binary "maxminddb>=1.5"
+        spinner_stop "maxminddb установлен"
+
+        spinner_start "Скачиваем GeoLite2-City.mmdb (~50 MB)..."
+        if curl -fsSL "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb" \
+                -o "$CITY_DB.tmp" 2>>"$PIP_LOG" && mv "$CITY_DB.tmp" "$CITY_DB"; then
+            spinner_stop "GeoLite2-City.mmdb загружен"
+        else
+            spinner_stop
+            warn "Не удалось скачать GeoLite2-City.mmdb"
+            warn "Скачайте вручную и положите в $CITY_DB"
+            warn "Источник: https://github.com/P3TERX/GeoLite.mmdb"
+        fi
+
+        spinner_start "Скачиваем GeoLite2-ASN.mmdb (~8 MB)..."
+        if curl -fsSL "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-ASN.mmdb" \
+                -o "$ASN_DB.tmp" 2>>"$PIP_LOG" && mv "$ASN_DB.tmp" "$ASN_DB"; then
+            spinner_stop "GeoLite2-ASN.mmdb загружен"
+        else
+            spinner_stop
+            warn "GeoLite2-ASN.mmdb не загружен (будет работать без ASN-данных)"
+        fi
+    else
+        info "Используется ip-api.com (можно переключиться позже, положив .mmdb в $MMDB_DIR)"
+    fi
+fi
+
 # ── Сохраняем версию ─────────────────────────────────────────
 
 NEW_VERSION=$("$VENV_DIR/bin/python" -c "from xray_monitor import __version__; print(__version__)" 2>/dev/null || echo "unknown")
@@ -297,9 +361,9 @@ echo "   xray-monitor -c /path/to/config.json"
 echo ""
 echo " Клавиши:"
 echo "   q=выход  r=реконнект  s=сортировка  z=сброс  p=пауза"
-echo "   Q=QR     e=редактор   R=рестарт     C=проверка  B=откат"
+echo "   Q=QR     e=редактор   R=рестарт     H=горячий-релоад"
 echo "   S=старт  X=стоп       U=обновить    E=автозапуск вкл/выкл"
-echo "   1-6=вкладки   f=фильтр"
+echo "   C=проверка  B=откат   1-6=вкладки   f=фильтр"
 echo ""
 if $IS_UPDATE; then
     echo " Обновление:"
@@ -309,6 +373,14 @@ else
     echo " Обновление:"
     echo "   1) git pull (или скопируй новые файлы)"
     echo "   2) sudo bash install.sh"
+fi
+echo ""
+if [[ -f "$CITY_DB" ]]; then
+    echo " Геолокация: MaxMind GeoLite2 (офлайн)"
+    echo "   Обновить базы: sudo bash install.sh --update"
+else
+    echo " Геолокация: ip-api.com (онлайн)"
+    echo "   Переключить на MaxMind: sudo bash install.sh --update"
 fi
 echo ""
 echo " Удаление:"

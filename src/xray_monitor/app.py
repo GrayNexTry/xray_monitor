@@ -32,7 +32,7 @@ from .modules.log_tail     import LogTail
 from .modules.sys_stats    import SysStats
 from .modules.traffic_log  import TrafficLog
 from .modules.xray_manager import (
-    get_xray_status, start_xray, stop_xray, restart_xray,
+    get_xray_status, start_xray, stop_xray, restart_xray, reload_xray,
     enable_xray, disable_xray, update_xray_async,
 )
 from .widgets import (
@@ -68,6 +68,7 @@ class XrayMonitor(App):
     CSS   = CSS
 
     BINDINGS = [
+        Binding("H",      "reload_xray",         "", show=False),
         Binding("q",      "quit",               "", show=False),
         Binding("r",      "reconnect",           "", show=False),
         Binding("s",      "toggle_sort",         "", show=False),
@@ -100,7 +101,7 @@ class XrayMonitor(App):
         "tab-sys":   "q выход  r реконнект  p пауза  1-6 вкладки",
         "tab-log":   "q выход  r реконнект  z сброс блокировок  1-6 вкладки",
         "tab-conn":  "q выход  r реконнект  f фильтр  1-6 вкладки",
-        "tab-mgmt":  "q выход  S старт  X стоп  R рестарт  E авт.запуск  U обновить  e редактор  C проверка  B откат",
+        "tab-mgmt":  "q выход  S старт  X стоп  R рестарт  H горячий-релоад  E авт.запуск  U обновить  e редактор  C проверка  B откат",
     }
 
     @staticmethod
@@ -138,6 +139,7 @@ class XrayMonitor(App):
         self.traffic_log = TrafficLog()
         self._last_d: dict | None = None
         self._tick_n  = 0
+        self._fetching = False   # предотвращает параллельные тики
         self._ping_hosts: list    = ["1.1.1.1", "8.8.8.8", "google.com"]
         self._update_status       = ""
         self._bak_cache:   list   = []
@@ -251,23 +253,41 @@ class XrayMonitor(App):
     # ── Tick / Draw ──────────────────────────────────────────
 
     def _tick(self) -> None:
+        """Планировщик тика — запускает _tick_worker в отдельном потоке.
+
+        Важно: set_interval() вызывает этот метод в event loop Textual.
+        Все блокирующие операции (gRPC, диск) выполняются в _tick_worker(),
+        чтобы не замораживать UI.
+        """
         if self.paused: return
-        self._tick_n += 1
-        threading.Thread(target=self.log_tail.update_block_stats, daemon=True).start()
+        if self._fetching: return   # пропускаем тик если предыдущий ещё не завершён
+        self._tick_n  += 1
+        self._fetching = True
+        threading.Thread(target=self._tick_worker, daemon=True).start()
+
+    def _tick_worker(self) -> None:
+        """Фоновый поток: gRPC-вызовы + обновление SQLite."""
         try:
+            threading.Thread(target=self.log_tail.update_block_stats, daemon=True).start()
             log_snap = {em: dict(ips) for em, ips in self.log_tail.client_ips.items()}
             d = self.xray.fetch(log_ips=log_snap)
-            self._last_d = d
             if "error" not in d and d.get("users"):
-                threading.Thread(
-                    target=self.traffic_log.update,
-                    args=(d["users"],),
-                    daemon=True,
-                ).start()
-            self._draw(d)
+                self.traffic_log.update(d["users"])   # SQLite с WAL — быстро
+            self.call_from_thread(lambda: self._after_tick(d))
         except Exception as e:
-            try: self.query_one(StatusBar).update(Text(f" ✗ {e}", C["err"]))
-            except Exception: pass
+            err_msg = str(e)
+            self.call_from_thread(lambda: self._tick_error(err_msg))
+        finally:
+            self._fetching = False
+
+    def _after_tick(self, d: dict) -> None:
+        """Вызывается из event loop через call_from_thread — обновляет UI."""
+        self._last_d = d
+        self._draw(d)
+
+    def _tick_error(self, msg: str) -> None:
+        try: self.query_one(StatusBar).update(Text(f" ✗ {msg}", C["err"]))
+        except Exception: pass
 
     def _draw(self, d: dict) -> None:
         err = "error" in d
@@ -463,6 +483,20 @@ class XrayMonitor(App):
             copy_to_clipboard(url)
             self.notify(L["url_saved_qr"]); return
         self.push_screen(QRModal(url, L["vless_url"]))
+
+    def action_reload_xray(self) -> None:
+        """H — горячая перезагрузка конфига xray без обрыва сессий (SIGHUP)."""
+        def _do() -> None:
+            ok, msg = reload_xray()
+            self.call_from_thread(lambda: self.notify(
+                msg,
+                severity="information" if ok else "error",
+            ))
+            if ok:
+                time.sleep(1)
+                self.call_from_thread(self.action_reconnect)
+        self.notify("Горячая перезагрузка xray...", severity="warning")
+        threading.Thread(target=_do, daemon=True).start()
 
     def action_restart_xray(self) -> None:
         def _do() -> None:

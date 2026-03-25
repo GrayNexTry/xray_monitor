@@ -1,9 +1,10 @@
-"""Управление xray-core: обновление, перезапуск, старт, стоп."""
+"""Управление xray-core: обновление, перезапуск, старт, стоп, горячая перезагрузка."""
 
 from __future__ import annotations
 
 import os
 import re
+import signal
 import time
 import json
 import shutil
@@ -158,6 +159,38 @@ def restart_xray() -> Tuple[bool, str]:
         if r.returncode == 0:
             return True, "Xray перезапущен"
         return False, (r.stderr or r.stdout).strip()[:200]
+    except Exception as e:
+        return False, str(e)
+
+
+def reload_xray() -> Tuple[bool, str]:
+    """Горячая перезагрузка конфига xray без обрыва текущих сессий.
+
+    Порядок попыток:
+      1. systemctl reload xray  (если ExecReload задан в unit-файле)
+      2. kill -SIGHUP <pid>     (xray перечитывает конфиг, не закрывая порты)
+    """
+    # Попытка 1: systemctl reload
+    try:
+        r = subprocess.run(
+            ["systemctl", "reload", _XRAY_SERVICE],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            return True, "Горячая перезагрузка (systemctl reload)"
+    except Exception:
+        pass
+
+    # Попытка 2: прямой SIGHUP к процессу
+    status = get_xray_status()
+    pid = status.get("pid")
+    if not pid:
+        return False, "Xray не запущен (PID не найден)"
+    try:
+        os.kill(pid, signal.SIGHUP)
+        return True, f"SIGHUP → PID {pid} (сессии не прерваны)"
+    except PermissionError:
+        return False, f"Нет прав на kill PID {pid} — нужен sudo"
     except Exception as e:
         return False, str(e)
 

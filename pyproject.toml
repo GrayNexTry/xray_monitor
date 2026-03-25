@@ -16,7 +16,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-build = ["pyinstaller>=6.0"]
+build   = ["pyinstaller>=6.0"]
+geoip   = ["maxminddb>=1.5"]
 
 [project.scripts]
 xray-monitor = "xray_monitor.__main__:main"
