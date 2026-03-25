@@ -212,7 +212,7 @@ if [[ -f "$CITY_DB" ]]; then
     MMDB_ALREADY=true
 fi
 
-# На обновлении не переспрашиваем если уже установлено
+# На обновлении с уже установленными базами — молча обновляем
 if $IS_UPDATE && $MMDB_ALREADY; then
     spinner_start "Обновляем GeoLite2 базы..."
     if curl -fsSL "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb" \
@@ -224,7 +224,8 @@ if $IS_UPDATE && $MMDB_ALREADY; then
         spinner_stop
         warn "Не удалось обновить GeoLite2 — оставляем старые файлы"
     fi
-elif ! $IS_UPDATE; then
+else
+    # Первая установка ИЛИ обновление без баз — спрашиваем
     echo ""
     echo -e "${CYAN}━━━ Геолокация ━━━${NC}"
     echo ""
