@@ -259,6 +259,45 @@ class XrayConfig:
 
         return None
 
+    def delete_client(self, email: str) -> tuple[bool, str]:
+        """Удаляет клиента по email из всех inbound-ов. Создаёт бэкап."""
+        import shutil
+        import time as _t
+        try:
+            data = self.reload()
+            if "error" in data:
+                return False, f"Ошибка чтения конфига: {data['error']}"
+
+            # xray хранит email как "user", stats показывает "user@tag" —
+            # матчим оба варианта
+            short = email.split("@")[0] if "@" in email else email
+
+            found = False
+            for ib in data.get("inbounds", []):
+                settings = ib.get("settings") or {}
+                clients = settings.get("clients") or []
+                before = len(clients)
+                settings["clients"] = [
+                    c for c in clients
+                    if c.get("email") not in (email, short)
+                ]
+                if len(settings["clients"]) < before:
+                    found = True
+
+            if not found:
+                return False, f"Пользователь '{email}' не найден в конфиге"
+
+            bak = self.path + f".bak.{int(_t.time())}"
+            shutil.copy2(self.path, bak)
+
+            with open(self.path, "w") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            self._mtime = 0  # сброс кэша
+
+            return True, f"Удалён '{email}'. Бэкап: {bak}"
+        except Exception as e:
+            return False, str(e)
+
     def check_syntax(self) -> tuple:
         for xray_bin in ["/usr/local/bin/xray", "/usr/bin/xray", "xray"]:
             try:

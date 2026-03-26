@@ -39,7 +39,7 @@ from .widgets import (
     CSS, OvBox, SysBox, TrafficW, UsersW,
     KeysLeft, KeysRight,
     SysCpuRam, SysDisk, SysNet, SysProcs, SysPing,
-    LogW, ConnW, MgmtW, MgmtKeysW, StatusBar, QRModal,
+    LogW, ConnW, MgmtW, StatusBar, QRModal, DeleteConfirmScreen,
     IPTableW, IPDetailW, IPSortBar,
 )
 from .panels.dashboard   import render_overview, render_sysmini, render_traffic, render_users
@@ -47,7 +47,7 @@ from .panels.system      import render_cpu_ram, render_disk, render_net, render_
 from .panels.logs        import render_log
 from .panels.connections import render_connections
 from .panels.keys        import render_keys_left, render_keys_right
-from .panels.management  import start_management_update, build_hotkeys_text
+from .panels.management  import start_management_update
 from .panels.ip_radar    import render_ip_detail, build_ip_table_rows
 
 
@@ -79,7 +79,8 @@ class XrayMonitor(App):
         "tab-mgmt":  frozenset({"start_xray", "stop_xray", "restart_xray", "reload_xray",
                                  "toggle_enable_xray", "update_xray",
                                  "edit_config", "check_config", "rollback_config"}),
-        "tab-ip":    frozenset({"ip_sort_time", "ip_sort_name", "ip_sort_dn", "ip_sort_status"}),
+        "tab-ip":    frozenset({"ip_sort_time", "ip_sort_name", "ip_sort_dn", "ip_sort_status",
+                                 "delete_ip_user"}),
     }
     _ALL_TAB_ACTIONS: frozenset = frozenset().union(*_TAB_ACTIONS.values())
 
@@ -106,18 +107,19 @@ class XrayMonitor(App):
         Binding("E", "toggle_enable_xray", "Авт.запуск",   show=True),
         Binding("U", "update_xray",        "Обновить",     show=True),
         # ── tab-ip ──────────────────────────────────────────
-        Binding("t", "ip_sort_time",   "↕ Время",    show=True),
-        Binding("n", "ip_sort_name",   "↕ Имя",      show=True),
-        Binding("d", "ip_sort_dn",     "↕ Загрузка", show=True),
-        Binding("o", "ip_sort_status", "↕ Статус",   show=True),
+        Binding("t",      "ip_sort_time",   "↕ Время",    show=True),
+        Binding("n",      "ip_sort_name",   "↕ Имя",      show=True),
+        Binding("d",      "ip_sort_dn",     "↕ Загрузка", show=True),
+        Binding("o",      "ip_sort_status", "↕ Статус",   show=True),
+        Binding("ctrl+d", "delete_ip_user", "Удалить",    show=True),
         # ── Вкладки 1–7 (скрытые) ───────────────────────────
         Binding("1", "tab_dash",  "", show=False),
         Binding("2", "tab_keys",  "", show=False),
         Binding("3", "tab_sys",   "", show=False),
         Binding("4", "tab_log",   "", show=False),
         Binding("5", "tab_conn",  "", show=False),
-        Binding("6", "tab_mgmt",  "", show=False),
-        Binding("7", "tab_ip",    "", show=False),
+        Binding("6", "tab_ip",  "", show=False),
+        Binding("7", "tab_mgmt",    "", show=False),
         # ── Прочее (скрытые) ────────────────────────────────
         Binding("escape", "clear_filter", "", show=False),
     ]
@@ -210,11 +212,8 @@ class XrayMonitor(App):
                         yield IPDetailW("  Выберите IP стрелками ↑↓",
                                         id="ip-detail")
             with TabPane(L["tab_mgmt"], id="tab-mgmt"):
-                with Horizontal(id="mgmt-layout"):
-                    with VerticalScroll(id="mgmt-scroll"):
-                        yield MgmtW("...")
-                    with Vertical(id="mgmt-right"):
-                        yield MgmtKeysW("...", id="mgmt-keys")
+                with VerticalScroll(id="mgmt-scroll"):
+                    yield MgmtW("...")
                     
         yield StatusBar("...", id="status")
         yield Footer()
@@ -475,14 +474,6 @@ class XrayMonitor(App):
         except Exception: pass
 
     def _draw_mgmt_tab(self) -> None:
-        # Горячие клавиши статичны — рендерим один раз
-        try:
-            keys_w = self.query_one(MgmtKeysW)
-            if str(keys_w.renderable) == "...":
-                keys_w.update(build_hotkeys_text())
-        except Exception:
-            pass
-
         def _set(t: Text) -> None:
             try: self.query_one(MgmtW).update(t)
             except Exception: pass
@@ -781,3 +772,38 @@ class XrayMonitor(App):
     def action_ip_sort_name(self)   -> None: self._ip_sort("email")
     def action_ip_sort_dn(self)     -> None: self._ip_sort("dn")
     def action_ip_sort_status(self) -> None: self._ip_sort("status")
+
+    def action_delete_ip_user(self) -> None:
+        """ctrl+d — удалить пользователя выбранного IP с подтверждением."""
+        ip = self._current_ip
+        if not ip:
+            return
+
+        # Ищем email по IP
+        email = ""
+        for e, ips in self.log_tail.client_ips.items():
+            if ip in ips:
+                email = e
+                break
+        if not email:
+            row = next((r for r in self._ip_db_cache if r.get("ip") == ip), None)
+            email = (row or {}).get("email", "")
+        if not email:
+            self.query_one(StatusBar).update(f" Нет email для IP {ip}")
+            return
+
+        def _on_confirm(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            ok, msg = self.cfg.delete_client(email)
+            self.query_one(StatusBar).update(f" {msg}")
+            if ok:
+                # Горячий релоад xray
+                import threading
+                from .modules.xray_manager import reload_xray
+                def _reload() -> None:
+                    reload_xray()
+                    self.call_from_thread(lambda: self._draw_ip_table())
+                threading.Thread(target=_reload, daemon=True).start()
+
+        self.push_screen(DeleteConfirmScreen(email), _on_confirm)

@@ -17,7 +17,6 @@ class SysPing(Static):   pass
 class LogW(Static):      pass
 class ConnW(Static):     pass
 class MgmtW(Static):     pass
-class MgmtKeysW(Static): pass
 class StatusBar(Static): pass
 class IPSortBar(Static): pass
 class IPDetailW(Static): pass
