@@ -263,10 +263,7 @@ def render_users(app: "XrayMonitor", d: dict) -> Text:
         t.append("\n")
 
         t.append("   UP ", C["up"]); t.append(f"{fmt_b(up):>9}", C["up"])
-        if su > 10: t.append(f" {fmt_s(su):>9}", C["up"])
-        else: t.append(f"{'':>10}", "")
-        t.append("  DN ", C["dn"]); t.append(f"{fmt_b(dn):>9}", C["dn"])
-        if sd > 10: t.append(f" {fmt_s(sd):>9}", C["dn"])
+        t.append("   DN ", C["dn"]); t.append(f"{fmt_b(dn):>9}", C["dn"])
         t.append("\n")
 
         # ── История трафика ──────────────────────────────────
@@ -276,23 +273,15 @@ def render_users(app: "XrayMonitor", d: dict) -> Text:
         if td or wk or mo:
             t.append("   ", "")
             if td:
-                td_tot = td.get("up", 0) + td.get("dn", 0)
                 t.append("сег ", C["dim"])
-                t.append(fmt_b(td_tot), C["accent3"])
+                t.append(fmt_b(td.get("up", 0) + td.get("dn", 0)), C["accent3"])
             if wk:
-                wk_tot = wk.get("up", 0) + wk.get("dn", 0)
                 t.append("  7д ", C["dim"])
-                t.append(fmt_b(wk_tot), C["accent"])
+                t.append(fmt_b(wk.get("up", 0) + wk.get("dn", 0)), C["accent"])
             if mo:
-                mo_tot = mo.get("up", 0) + mo.get("dn", 0)
                 t.append("  30д ", C["dim"])
-                t.append(fmt_b(mo_tot), C["total"])
+                t.append(fmt_b(mo.get("up", 0) + mo.get("dn", 0)), C["total"])
             t.append("\n")
-
-        if hist and hist.n >= 3 and is_on:
-            t.append("    ", ""); t.append(spark(hist.up, 16), C["spark_u"])
-            t.append("  ",  ""); t.append(spark(hist.dn, 16), C["spark_d"])
-            t.append(f"  pk{fmt_s(hist.p_up)}", C["dim"]); t.append("\n")
 
         if ips and is_on:
             ip_list = sorted(ips.items(), key=lambda x: x[1], reverse=True)
