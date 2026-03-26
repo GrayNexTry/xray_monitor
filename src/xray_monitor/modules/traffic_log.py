@@ -500,6 +500,13 @@ class TrafficLog:
             self._conn.commit()
         return len(ips)
 
+    def delete_by_ip(self, ip: str) -> None:
+        """Удаляет одну IP-запись из ip_traffic и ip_sni."""
+        with _LOCK:
+            self._conn.execute("DELETE FROM ip_sni     WHERE ip=?", (ip,))
+            self._conn.execute("DELETE FROM ip_traffic WHERE ip=?", (ip,))
+            self._conn.commit()
+
     def query_ip_sni(self, ip: str) -> list:
         """SNI-домены для одного IP из БД.
 
