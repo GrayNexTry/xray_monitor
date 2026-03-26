@@ -10,11 +10,14 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import threading
 from datetime import date, timedelta
 from typing import Dict
+
+log = logging.getLogger(__name__)
 
 _LOCK      = threading.Lock()
 _SAVE_EVERY = 30    # сохранять today_base каждые N тиков
@@ -84,6 +87,18 @@ class TrafficLog:
         self._load_today()
         self._maybe_migrate_json()
 
+    def close(self) -> None:
+        """Корректно закрывает SQLite-соединение. Вызывать при завершении приложения."""
+        with _LOCK:
+            try:
+                self._save_today_base()
+            except Exception:
+                log.warning("failed to save today_base on close", exc_info=True)
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+
     # ── Инициализация БД ─────────────────────────────────────
 
     def _open_db(self) -> sqlite3.Connection:
@@ -113,7 +128,7 @@ class TrafficLog:
             try:
                 conn.execute(sql)
             except Exception:
-                pass
+                log.warning("schema migration failed: %s", sql, exc_info=True)
         if migrations:
             conn.commit()
 
@@ -135,6 +150,7 @@ class TrafficLog:
                     for r in rows
                 }
         except Exception:
+            log.warning("failed to load today's data", exc_info=True)
             self._today_date = ""
             self._today_base = {}
 
@@ -161,7 +177,7 @@ class TrafficLog:
                             )
             os.rename(json_path, json_path + ".migrated")
         except Exception:
-            pass
+            log.warning("JSON migration failed for %s", json_path, exc_info=True)
 
     # ── Сохранение today_base ────────────────────────────────
 
@@ -384,6 +400,8 @@ class TrafficLog:
                 rows.append((ip, domain, tag, count, int(last_ts)))
         if not rows:
             return
+        import time as _time
+        cutoff = int(_time.time()) - 86400 * 30
         with _LOCK:
             with self._conn:
                 self._conn.executemany(
@@ -394,11 +412,7 @@ class TrafficLog:
                     " last_seen=MAX(last_seen, excluded.last_seen)",
                     rows,
                 )
-        # Ротация: удаляем старые записи (старше 30 дней)
-        import time as _time
-        cutoff = int(_time.time()) - 86400 * 30
-        with _LOCK:
-            with self._conn:
+                # Ротация: удаляем старые записи (старше 30 дней) в той же транзакции
                 self._conn.execute(
                     "DELETE FROM ip_sni WHERE last_seen < ?", (cutoff,)
                 )

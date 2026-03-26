@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import stat
 import subprocess
+import tempfile
 from datetime import datetime
 from typing import Any, TYPE_CHECKING
+
+log = logging.getLogger(__name__)
 
 from .constants import C
 
@@ -137,10 +141,15 @@ def copy_to_clipboard(text: str) -> bool:
         except Exception:
             pass
     try:
-        path = "/tmp/xray-clipboard.txt"
-        with open(path, "w") as f:
-            f.write(text)
-        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        # Кроссплатформенный путь вместо захардкоженного /tmp
+        path = os.path.join(tempfile.gettempdir(), "xray-clipboard.txt")
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                     stat.S_IRUSR | stat.S_IWUSR)
+        try:
+            os.write(fd, text.encode())
+        finally:
+            os.close(fd)
         return True
     except Exception:
+        log.debug("clipboard fallback failed", exc_info=True)
         return False

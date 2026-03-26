@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import time
 import threading
 from collections import deque, OrderedDict
 from datetime import datetime
+
+log = logging.getLogger(__name__)
 
 _TOP_BLOCKED_MAX = 500
 _RE_TRANSPORT    = re.compile(r"(?:tcp|udp):([^:,\s\[]+):(\d+)")
@@ -65,27 +68,35 @@ class LogTail:
         try:
             if not os.path.exists(self.path): return []
             with open(self.path, "rb") as f:
-                f.seek(0, 2); sz = f.tell(); f.seek(max(0, sz - 65536))
+                f.seek(0, 2)
+                sz = f.tell()
+                f.seek(max(0, sz - 65536))
                 return f.read().decode("utf-8", errors="replace").strip().split("\n")[-self.n:]
         except Exception:
+            log.debug("failed to read log %s", self.path, exc_info=True)
             return []
 
     def update_block_stats(self) -> None:
         try:
             if not os.path.exists(self.path): return
 
+            # Детект ротации лога: по inode (Linux) или по уменьшению размера (Windows)
             try:
                 st = os.stat(self.path)
                 current_inode = st.st_ino
-                if self._last_inode and current_inode != self._last_inode:
+                # На Windows st_ino == 0, поэтому используем только проверку размера
+                if current_inode != 0 and self._last_inode != 0 \
+                        and current_inode != self._last_inode:
                     self._last_pos = 0
                 self._last_inode = current_inode
             except (AttributeError, OSError):
                 pass
 
             with open(self.path, "rb") as f:
-                f.seek(0, 2); sz = f.tell()
+                f.seek(0, 2)
+                sz = f.tell()
                 if sz < self._last_size:
+                    # Файл стал меньше — ротация (работает на всех платформах)
                     self._last_pos = 0
                 self._last_size = sz
                 is_first_scan = (self._last_pos == 0)
@@ -208,7 +219,7 @@ class LogTail:
                                 tag or ex[0], ex[1] + cnt, max(ex[2], ts_d)
                             )
         except Exception:
-            pass
+            log.debug("update_block_stats failed", exc_info=True)
 
     def block_per_min(self) -> float:
         with self._lock:
