@@ -291,7 +291,7 @@ def render_users(app: "XrayMonitor", d: dict) -> Text:
         if ips and is_on:
             ip_list = sorted(ips.items(), key=lambda x: x[1], reverse=True)
             for i, (ip, ts) in enumerate(ip_list):
-                pfx = "|" if i < len(ip_list) - 1 else " L"
+                pfx = "|" if i < len(ip_list) - 1 else "∟"
                 t.append(f"   {pfx} ", C["dim"])
                 t.append(f"{ip:<18}", C["dim"])
 
