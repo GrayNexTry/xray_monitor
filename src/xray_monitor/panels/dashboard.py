@@ -45,6 +45,8 @@ def render_overview(app: "XrayMonitor", d: dict) -> Text:
     t.append(spark(app.xray.dn_hist, 26), C["spark_d"])
     t.append("\n")
 
+    t.append("\n")
+
     t.append(" TOT ", C["total"])
     t.append(f"{fmt_b(tot):>10}", C["total"])
     t.append(f"   pk↑ {fmt_s(app.xray.peak_up)}", C["dim"])
