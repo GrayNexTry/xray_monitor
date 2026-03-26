@@ -43,7 +43,7 @@ from .widgets import (
     CSS, OvBox, SysBox, TrafficW, UsersW,
     KeysLeft, KeysRight,
     SysCpuRam, SysDisk, SysNet, SysProcs, SysPing,
-    LogW, ConnW, MgmtW, StatusBar, QRModal, DeleteConfirmScreen,
+    LogW, ConnW, MgmtW, MgmtKeysW, StatusBar, QRModal, DeleteConfirmScreen,
     IPTableW, IPDetailW, IPSortBar,
 )
 from .panels.dashboard   import render_overview, render_sysmini, render_traffic, render_users
@@ -215,8 +215,11 @@ class XrayMonitor(App):
                         yield IPDetailW("  Выберите IP стрелками ↑↓",
                                         id="ip-detail")
             with TabPane(L["tab_mgmt"], id="tab-mgmt"):
-                with VerticalScroll(id="mgmt-scroll"):
-                    yield MgmtW("...")
+                with Horizontal(id="mgmt-layout"):
+                    with VerticalScroll(id="mgmt-scroll"):
+                        yield MgmtW("...")
+                    with VerticalScroll(id="mgmt-keys-scroll"):
+                        yield MgmtKeysW("...")
                     
         yield StatusBar("...", id="status")
         yield Footer()
@@ -476,10 +479,13 @@ class XrayMonitor(App):
         except Exception: pass
 
     def _draw_mgmt_tab(self) -> None:
+        from .panels.management import build_hotkeys_text
         def _set(t: Text) -> None:
             try: self.query_one(MgmtW).update(t)
             except Exception: pass
         start_management_update(self, _set)
+        try: self.query_one(MgmtKeysW).update(build_hotkeys_text())
+        except Exception: pass
 
     # ── Вспомогательные методы ────────────────────────────────
 

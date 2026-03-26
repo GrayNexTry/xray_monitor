@@ -98,26 +98,6 @@ def build_management_text(app: "XrayMonitor") -> Text:
         if app._update_status:
             t.append(f"\n  >> {app._update_status}\n", C["warn"])
 
-        # ── Горячие клавиши ───────────────────────────────────
-        t.append("\n")
-        t.append("  " + H * 50 + "\n", C["dim"])
-        t.append(f"\n  {L['hotkeys_title']}\n\n", C["accent"])
-        hotkeys = [
-            ("S", L["hotkey_start_xray"],       L["xray_started"]),
-            ("X", L["hotkey_stop_xray"],         L["xray_stopped"]),
-            ("R", L["hotkey_restart_xray"],      L["xray_restarted"]),
-            ("H", "Горячий релоад конфига",      "SIGHUP — сессии не прерываются"),
-            ("U", L["hotkey_update_xray"],       L["xray_update_done"]),
-            ("E", L["hotkey_toggle_autostart"],  L["xray_enabled"] + "/" + L["xray_disabled"]),
-            ("C", L["hotkey_check_config"],      L["config_ok"]),
-            ("e", L["hotkey_edit_config"],       L["auto_backup"]),
-            ("B", L["hotkey_rollback_config"],   L["restore_backup"]),
-        ]
-        for key, desc, hint in hotkeys:
-            t.append(f"  [{key}]  ", C["accent3"])
-            t.append(f"{desc:<32}", "bold")
-            t.append(f" {hint}\n", C["dim"])
-
         # ── Логи xray (journal) ───────────────────────────────
         t.append("\n")
         t.append("  " + H * 50 + "\n", C["dim"])
