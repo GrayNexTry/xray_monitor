@@ -806,13 +806,23 @@ class XrayMonitor(App):
             if not confirmed:
                 return
             ok, msg = self.cfg.delete_client(email)
-            self.notify(msg, severity="information" if ok else "error")
             if ok:
+                # Чистим БД и in-memory кэш
+                n = self.traffic_log.delete_by_email(email)
+                self._ip_db_cache = [
+                    r for r in self._ip_db_cache if r.get("email") not in (email, email.split("@")[0])
+                ]
+                # Убираем из log_tail памяти
+                self.log_tail.client_ips.pop(email, None)
+                self.log_tail.client_ips.pop(email.split("@")[0], None)
+                self.notify(f"{msg} (удалено {n} IP из БД)", severity="information")
                 import threading
                 from .modules.xray_manager import reload_xray
                 def _reload() -> None:
                     reload_xray()
                     self.call_from_thread(self._draw_ip_table)
                 threading.Thread(target=_reload, daemon=True).start()
+            else:
+                self.notify(msg, severity="error")
 
         self.push_screen(DeleteConfirmScreen(email), _on_confirm)

@@ -471,6 +471,35 @@ class TrafficLog:
             for r in rows
         ]
 
+    def delete_by_email(self, email: str) -> int:
+        """Удаляет все записи пользователя из ip_traffic и ip_sni.
+
+        Возвращает количество удалённых IP-записей.
+        """
+        short = email.split("@")[0] if "@" in email else email
+        with _LOCK:
+            # Собираем все IP этого пользователя
+            rows = self._conn.execute(
+                "SELECT ip FROM ip_traffic WHERE email IN (?, ?)",
+                (email, short),
+            ).fetchall()
+            ips = [r[0] for r in rows]
+
+            # Удаляем SNI по этим IP
+            if ips:
+                placeholders = ",".join("?" * len(ips))
+                self._conn.execute(
+                    f"DELETE FROM ip_sni WHERE ip IN ({placeholders})", ips
+                )
+
+            # Удаляем сами IP-записи
+            self._conn.execute(
+                "DELETE FROM ip_traffic WHERE email IN (?, ?)",
+                (email, short),
+            )
+            self._conn.commit()
+        return len(ips)
+
     def query_ip_sni(self, ip: str) -> list:
         """SNI-домены для одного IP из БД.
 
