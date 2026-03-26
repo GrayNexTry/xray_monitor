@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 import ipaddress
@@ -15,6 +16,8 @@ import threading
 from collections import OrderedDict
 from typing import Optional
 from urllib.request import urlopen
+
+log = logging.getLogger(__name__)
 
 _CACHE_MAX = 2000
 _CACHE_TTL_OFFLINE = 86400 * 7   # 7 дней для MaxMind (база обновляется редко)
@@ -177,20 +180,30 @@ class GeoIP:
                 del self._pending[clean]
             self._pending[clean] = now
 
+        # Semaphore проверяется до создания потока, чтобы избежать
+        # неограниченного создания daemon-потоков
+        if not self._semaphore.acquire(blocking=False):
+            return None
         threading.Thread(target=self._fetch_api, args=(clean,), daemon=True).start()
         return None
 
     def _fetch_api(self, ip: str) -> None:
-        if not self._semaphore.acquire(timeout=5):
-            with self._lock:
-                self._pending.pop(ip, None)
-            return
+        # Semaphore уже захвачен вызывающим кодом
         try:
-            raw = urlopen(
-                f"http://ip-api.com/json/{ip}"
-                "?fields=status,country,countryCode,city,isp,as,asname,hosting",
-                timeout=5,
-            ).read()
+            # HTTPS для защиты от MITM (ip-api.com поддерживает на платных планах;
+            # бесплатный лимит — HTTP. Пробуем HTTPS, фолбэк на HTTP.)
+            for scheme in ("https", "http"):
+                try:
+                    raw = urlopen(
+                        f"{scheme}://ip-api.com/json/{ip}"
+                        "?fields=status,country,countryCode,city,isp,as,asname,hosting",
+                        timeout=5,
+                    ).read()
+                    break
+                except Exception:
+                    if scheme == "http":
+                        raise
+                    continue  # fallback to http
             r = json.loads(raw)
             if r.get("status") == "success":
                 res: dict = {
@@ -205,6 +218,7 @@ class GeoIP:
             else:
                 res = dict(_FAIL)
         except Exception:
+            log.debug("GeoIP API error for %s", ip, exc_info=True)
             res = dict(_FAIL)
         finally:
             self._semaphore.release()

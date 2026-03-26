@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import time
 import threading
 from collections import deque, OrderedDict
 from typing import Any, Optional, TYPE_CHECKING
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     import grpc as _grpc_type
@@ -80,6 +83,7 @@ class XrayStats:
             self.connected = True
             self.error     = ""
         except Exception as e:
+            log.warning("gRPC connect failed: %s", e)
             self.connected = False
             self.error     = str(e)
 
@@ -285,7 +289,11 @@ class XrayStats:
                                     active_ips = list(grpc_online_ips)
                             elif log_em:
                                 # Только самый свежий IP из лога
-                                active_ips = [max(log_em, key=log_em.get)]  # type: ignore[arg-type]
+                                # Защита: max() на пустом dict бросит ValueError
+                                try:
+                                    active_ips = [max(log_em, key=log_em.get)]  # type: ignore[arg-type]
+                                except (ValueError, TypeError):
+                                    active_ips = []
                             else:
                                 active_ips = []
                             if active_ips:
@@ -312,7 +320,7 @@ class XrayStats:
 
             # Вне основного лока — независимые gRPC-вызовы
             try: R["sys"] = stub.sys_stats()
-            except Exception: pass
+            except Exception: log.debug("sys_stats failed", exc_info=True)
 
             # Дополняем онлайн-список из GetAllOnlineUsers (если поддерживается)
             try:
