@@ -14,7 +14,7 @@ from datetime import datetime
 from urllib.request import urlopen
 
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Static, TabbedContent, TabPane, Input, DataTable
+from textual.widgets import Header, Footer, Static, TabbedContent, TabPane, Input, DataTable
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.binding import Binding
@@ -39,7 +39,7 @@ from .widgets import (
     CSS, OvBox, SysBox, TrafficW, UsersW,
     KeysLeft, KeysRight,
     SysCpuRam, SysDisk, SysNet, SysProcs, SysPing,
-    LogW, ConnW, MgmtW, StatusBar, HintsBar, QRModal,
+    LogW, ConnW, MgmtW, StatusBar, QRModal,
     IPTableW, IPDetailW, IPSortBar,
 )
 from .panels.dashboard   import render_overview, render_sysmini, render_traffic, render_users
@@ -70,21 +70,25 @@ class XrayMonitor(App):
     CSS   = CSS
 
     BINDINGS = [
-        Binding("H",      "reload_xray",         "", show=False),
-        Binding("q",      "quit",               "", show=False),
-        Binding("r",      "reconnect",           "", show=False),
-        Binding("s",      "toggle_sort",         "", show=False),
-        Binding("z",      "reset_stats",         "", show=False),
-        Binding("p",      "toggle_pause",        "", show=False),
-        Binding("Q",      "show_qr",             "", show=False),
-        Binding("R",      "restart_xray",        "", show=False),
-        Binding("e",      "edit_config",         "", show=False),
-        Binding("C",      "check_config",        "", show=False),
-        Binding("B",      "rollback_config",     "", show=False),
-        Binding("S",      "start_xray",          "", show=False),
-        Binding("X",      "stop_xray",           "", show=False),
-        Binding("U",      "update_xray",         "", show=False),
-        Binding("E",      "toggle_enable_xray",  "", show=False),
+        # ── Видимые в Footer ────────────────────────────────
+        Binding("q", "quit",          "Выход",      show=True),
+        Binding("r", "reconnect",     "Реконнект",  show=True),
+        Binding("p", "toggle_pause",  "Пауза",      show=True),
+        Binding("s", "toggle_sort",   "Сортировка", show=True),
+        Binding("f", "toggle_filter", "Фильтр",     show=True),
+        Binding("Q", "show_qr",       "QR-код",     show=True),
+        Binding("e", "edit_config",   "Редактор",   show=True),
+        # ── Скрытые (управление xray) ───────────────────────
+        Binding("H", "reload_xray",        "", show=False),
+        Binding("z", "reset_stats",        "", show=False),
+        Binding("R", "restart_xray",       "", show=False),
+        Binding("C", "check_config",       "", show=False),
+        Binding("B", "rollback_config",    "", show=False),
+        Binding("S", "start_xray",         "", show=False),
+        Binding("X", "stop_xray",          "", show=False),
+        Binding("U", "update_xray",        "", show=False),
+        Binding("E", "toggle_enable_xray", "", show=False),
+        # ── Вкладки 1–7 ─────────────────────────────────────
         Binding("1", "tab_dash",  "", show=False),
         Binding("2", "tab_keys",  "", show=False),
         Binding("3", "tab_sys",   "", show=False),
@@ -92,43 +96,14 @@ class XrayMonitor(App):
         Binding("5", "tab_conn",  "", show=False),
         Binding("6", "tab_mgmt",  "", show=False),
         Binding("7", "tab_ip",    "", show=False),
-        Binding("f",      "toggle_filter",  "", show=False),
-        Binding("escape", "clear_filter",   "", show=False),
+        # ── Прочее ──────────────────────────────────────────
+        Binding("escape", "clear_filter",  "", show=False),
         # Сортировка IP-таблицы (активна только на вкладке 7)
         Binding("t", "ip_sort_time",   "", show=False),
         Binding("n", "ip_sort_name",   "", show=False),
         Binding("d", "ip_sort_dn",     "", show=False),
         Binding("o", "ip_sort_status", "", show=False),
     ]
-
-    # ── Подсказки по вкладкам ────────────────────────────────
-    # Формат: "ключ описание  ключ описание  ..."  (разделитель — два пробела)
-    _TAB_HINTS: dict = {
-        "tab-dash":  "q выход  r реконнект  s сортировка  z сброс  p пауза  Q QR  f фильтр  1-7 вкладки",
-        "tab-keys":  "q выход  e редактор  C проверка  B откат  Q QR  r реконнект  1-7 вкладки",
-        "tab-sys":   "q выход  r реконнект  p пауза  1-7 вкладки",
-        "tab-log":   "q выход  r реконнект  z сброс блокировок  1-7 вкладки",
-        "tab-conn":  "q выход  r реконнект  f фильтр  1-7 вкладки",
-        "tab-mgmt":  "q выход  S старт  X стоп  R рестарт  H горячий-релоад  E авт.запуск  U обновить  e редактор  C проверка  B откат",
-        "tab-ip":    "↑↓ выбор IP  t время  n имя  d загрузка  o статус  q выход  r реконнект",
-    }
-
-    @staticmethod
-    def _render_hints(hint_str: str) -> Text:
-        """Превращает строку подсказок в Rich Text с подсветкой клавиш."""
-        t = Text()
-        for i, chunk in enumerate(hint_str.split("  ")):
-            chunk = chunk.strip()
-            if not chunk:
-                continue
-            parts = chunk.split(" ", 1)
-            key  = parts[0]
-            desc = parts[1] if len(parts) > 1 else ""
-            if i > 0:
-                t.append("  ", "")
-            t.append(f" {key} ", C["accent3"])
-            t.append(desc, C["dim"])
-        return t
 
     sort_by     = reactive("downlink")
     geo_on      = reactive(True)
@@ -220,7 +195,7 @@ class XrayMonitor(App):
                         yield IPDetailW("  Выберите IP стрелками ↑↓",
                                         id="ip-detail")
         yield StatusBar("...", id="status")
-        yield HintsBar(self._render_hints(self._TAB_HINTS["tab-dash"]), id="hints")
+        yield Footer()
 
     # ── Mount ─────────────────────────────────────────────────
 
@@ -283,22 +258,9 @@ class XrayMonitor(App):
     ) -> None:
         if not event.tab:
             return
-        # Textual формирует id как "--content-tab-tab-dash" → берём часть после последнего "tab-"
         raw = event.tab.id or ""
-        # Ищем наш tab-id в строке напрямую
-        tab_id = "tab-dash"
-        for key in self._TAB_HINTS:
-            if key in raw:
-                tab_id = key
-                break
-        try:
-            self.query_one("#hints", HintsBar).update(
-                self._render_hints(self._TAB_HINTS[tab_id])
-            )
-        except Exception:
-            pass
         # IP Радар: сразу обновить таблицу при переключении на вкладку
-        if tab_id == "tab-ip":
+        if "tab-ip" in raw:
             self._ip_db_cache_t = 0
             self._draw_ip_table()
 

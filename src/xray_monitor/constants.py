@@ -1,20 +1,21 @@
 """Цвета и строки интерфейса (русский)."""
 
 C = {
-    "up":      "#00ff9f",
-    "dn":      "#00d4ff",
-    "total":   "#ffd700",
-    "online":  "#00ff9f",
-    "offline": "#555577",
-    "dim":     "#7760aa",
-    "warn":    "#ff8c00",
-    "err":     "#ff2d78",
-    "accent":  "#ff2d78",
-    "accent2": "#9b30ff",
-    "accent3": "#00d4ff",
-    "ok":      "#00ff9f",
-    "spark_u": "green",
-    "spark_d": "cyan",
+    # Catppuccin Mocha — спокойная палитра
+    "up":      "#a6e3a1",   # green
+    "dn":      "#89dceb",   # sky
+    "total":   "#f9e2af",   # yellow
+    "online":  "#a6e3a1",   # green
+    "offline": "#585b70",   # surface2 (dim)
+    "dim":     "#6c7086",   # subtext0
+    "warn":    "#fab387",   # peach
+    "err":     "#f38ba8",   # red
+    "accent":  "#cba6f7",   # mauve
+    "accent2": "#89b4fa",   # blue
+    "accent3": "#74c7ec",   # sapphire
+    "ok":      "#a6e3a1",   # green
+    "spark_u": "#a6e3a1",
+    "spark_d": "#89dceb",
 }
 
 L: dict = {
