@@ -32,35 +32,27 @@ def render_connections(app: "XrayMonitor") -> Text:
     t.append(f" {L['conn_log']}\n", C["accent"])
     t.append("  " + H * 78 + "\n", C["dim"])
 
-    # Текущие активные IP из gRPC (GetStatsOnlineIpList)
-    grpc_online_ips: set = set()
-    for ips in app.xray._prev_ips.values():
-        grpc_online_ips.update(ips)
-
-    # Fallback: GetStatsOnlineIpList не работает — используем лог + all_online_users
-    # Если пользователь онлайн и его IP виден в логе за последние 5 минут → онлайн
-    if not grpc_online_ips and app.xray._prev_online:
-        recent = time.time() - 300
-        for email in app.xray._prev_online:
-            for ip, ts in app.log_tail.client_ips.get(email, {}).items():
-                if ts > recent:
-                    grpc_online_ips.add(ip)
+    # Текущие активные IP из IPRegistry
+    grpc_online_ips = app.ip_registry.get_online_ips()
 
     # ── Сводная таблица IP ───────────────────────────────────
     # Собираем все известные IP из log_tail (за 24 ч) + текущие gRPC
     all_ips: dict = {}  # ip -> {email, ts, online}
 
-    for email, ips in app.log_tail.client_ips.items():
+    client_ips = app.ip_registry.get_client_ips()
+    for email, ips in client_ips.items():
         for ip, ts in ips.items():
             if ip not in all_ips or ts > all_ips[ip]["ts"]:
                 all_ips[ip] = {"email": email, "ts": ts,
                                 "online": ip in grpc_online_ips}
 
-    # Добавляем IP из gRPC если их нет в логе
-    for email, ips in app.xray._prev_ips.items():
-        for ip in ips:
-            if ip not in all_ips:
-                all_ips[ip] = {"email": email, "ts": time.time(), "online": True}
+    # Добавляем онлайн IP если их нет в логе
+    all_records = app.ip_registry.get_all_records()
+    for ip in grpc_online_ips:
+        if ip not in all_ips:
+            rec = all_records.get(ip)
+            all_ips[ip] = {"email": rec.email if rec else "",
+                           "ts": time.time(), "online": True}
 
     if all_ips:
         # Сортируем: сначала онлайн, потом по времени

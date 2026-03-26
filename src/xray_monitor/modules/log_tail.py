@@ -59,8 +59,6 @@ class LogTail:
         self._top_blocked: OrderedDict = OrderedDict()
         # IP-адреса клиентов из access.log: email -> {ip: last_seen_ts}
         self.client_ips: dict = {}
-        # SNI Radar: ip -> deque([(domain, ts), ...], maxlen=50) — кольцевой буфер
-        self.ip_sni: dict = {}
         # Буфер новых хитов для записи в БД: ip -> {domain: (tag, count, last_ts)}
         self._sni_flush: dict = {}
 
@@ -198,14 +196,9 @@ class LogTail:
                     if not self.client_ips[email]:
                         del self.client_ips[email]
 
-                # ── Обновляем SNI-буферы ──────────────────────────
+                # ── Обновляем SNI flush-буфер (для передачи в IPRegistry) ──
                 from .sni_radar import classify as _classify
                 for ip_sni_k, domains in new_sni.items():
-                    if ip_sni_k not in self.ip_sni:
-                        self.ip_sni[ip_sni_k] = deque(maxlen=50)
-                    for domain, (_, cnt, ts_d) in domains.items():
-                        self.ip_sni[ip_sni_k].append((domain, ts_d))
-                    # Обновляем flush-буфер (для записи в БД)
                     if ip_sni_k not in self._sni_flush:
                         self._sni_flush[ip_sni_k] = {}
                     for domain, (_, cnt, ts_d) in domains.items():
@@ -249,14 +242,3 @@ class LogTail:
             self._sni_flush = {}
         return buf
 
-    def load_sni_from_db(self, sni_data: dict) -> None:
-        """Загружает SNI-данные из БД при старте приложения.
-
-        sni_data: {ip: [(domain, tag, hits, last_seen), ...]}
-        """
-        with self._lock:
-            for ip, entries in sni_data.items():
-                if ip not in self.ip_sni:
-                    self.ip_sni[ip] = deque(maxlen=50)
-                for domain, _tag, _hits, last_seen in entries:
-                    self.ip_sni[ip].append((domain, last_seen))

@@ -34,6 +34,7 @@ from .modules.stats        import XrayStats
 from .modules.log_tail     import LogTail
 from .modules.sys_stats    import SysStats
 from .modules.traffic_log  import TrafficLog
+from .modules.ip_registry  import IPRegistry
 from .modules.xray_manager import (
     get_xray_status, start_xray, stop_xray, restart_xray, reload_xray,
     enable_xray, disable_xray, update_xray_async,
@@ -143,6 +144,7 @@ class XrayMonitor(App):
         self.cfg         = XrayConfig(config_path)
         self.sys_s       = SysStats()
         self.traffic_log = TrafficLog()
+        self.ip_registry = IPRegistry(self.traffic_log)
         self._last_d: dict | None = None
         self._tick_n  = 0
         self._fetch_lock = threading.Lock()  # атомарная защита от параллельных тиков
@@ -156,8 +158,6 @@ class XrayMonitor(App):
         self._paused_at: float = 0
         # IP Радар
         self._ip_sort_col:   str   = "last_active"  # last_active|email|dn|up|status
-        self._ip_db_cache:   list  = []              # кэш query_all_ips()
-        self._ip_db_cache_t: float = 0
         self._current_ip:    str   = ""              # выбранный IP в таблице
         self._active_tab:    str   = "tab-dash"      # текущая вкладка (для Footer)
 
@@ -239,12 +239,9 @@ class XrayMonitor(App):
         threading.Thread(target=self._load_ip_data_from_db, daemon=True).start()
 
     def _load_ip_data_from_db(self) -> None:
-        """Загружает SNI и байты по IP из SQLite в память (фоновый поток)."""
+        """Загружает IP-данные из SQLite в IPRegistry (фоновый поток)."""
         try:
-            stored_bytes = self.traffic_log.load_ip_bytes()
-            self.xray.ip_bytes.update(stored_bytes)
-            stored_sni = self.traffic_log.load_ip_sni()
-            self.log_tail.load_sni_from_db(stored_sni)
+            self.ip_registry.load_from_db()
         except Exception:
             log.warning("failed to load IP data from DB", exc_info=True)
 
@@ -252,6 +249,10 @@ class XrayMonitor(App):
 
     def on_unmount(self) -> None:
         """Корректное завершение: закрываем ресурсы."""
+        try:
+            self.ip_registry.flush_to_db()
+        except Exception:
+            log.debug("ip_registry flush error", exc_info=True)
         try:
             self.traffic_log.close()
         except Exception:
@@ -310,7 +311,6 @@ class XrayMonitor(App):
         self.refresh_bindings()
         # IP Радар: сразу обновить таблицу при переключении на вкладку
         if self._active_tab == "tab-ip":
-            self._ip_db_cache_t = 0
             self._draw_ip_table()
 
     # ── Tick / Draw ──────────────────────────────────────────
@@ -334,20 +334,18 @@ class XrayMonitor(App):
         try:
             threading.Thread(target=self.log_tail.update_block_stats, daemon=True).start()
             log_snap = {em: dict(ips) for em, ips in self.log_tail.client_ips.items()}
-            d = self.xray.fetch(log_ips=log_snap)
+            d = self.xray.fetch(log_ips=log_snap,
+                                ip_registry=self.ip_registry)
             if "error" not in d and d.get("users"):
                 self.traffic_log.update(d["users"])   # SQLite с WAL — быстро
-            # ── SNI Radar: сохраняем в БД каждые 10 тиков ────
+            # Обновляем connections в registry из лога
+            self.ip_registry.update_connections(log_snap)
+            # ── SNI + persistence: каждые 10 тиков ────────────
             if self._tick_n % 10 == 0:
                 sni_buf = self.log_tail.flush_new_sni()
                 if sni_buf:
-                    self.traffic_log.save_ip_sni(sni_buf)
-                if self.xray.ip_bytes:
-                    self.traffic_log.save_ip_bytes(
-                        self.xray.ip_bytes, self.xray.ip_email
-                    )
-                if self.log_tail.client_ips:
-                    self.traffic_log.save_ip_connections(self.log_tail.client_ips)
+                    self.ip_registry.update_sni(sni_buf)
+                self.ip_registry.flush_to_db()
             self.call_from_thread(lambda: self._after_tick(d))
         except Exception as e:
             log.exception("tick worker error")
@@ -446,15 +444,6 @@ class XrayMonitor(App):
         except Exception:
             return
 
-        # Обновляем кэш БД каждые 15 с
-        now = time.time()
-        if now - self._ip_db_cache_t > 15:
-            try:
-                self._ip_db_cache   = self.traffic_log.query_all_ips()
-                self._ip_db_cache_t = now
-            except Exception:
-                pass
-
         try:
             rows = build_ip_table_rows(self)
             self.query_one(IPTableW).rebuild(rows, keep_key=self._current_ip)
@@ -471,7 +460,7 @@ class XrayMonitor(App):
         }
         try:
             label = _SORT_LABELS.get(self._ip_sort_col, self._ip_sort_col)
-            total = len(self._ip_db_cache)
+            total = self.ip_registry.get_total_count()
             hint  = Text()
             hint.append(f"  Сортировка: [{label}]  ", C["accent3"])
             hint.append("t время  n имя  d загрузка  o статус  ", C["dim"])
@@ -767,7 +756,6 @@ class XrayMonitor(App):
 
     def action_tab_ip(self) -> None:
         self._switch_tab("tab-ip")
-        self._ip_db_cache_t = 0
         self._draw_ip_table()
 
     # ── Сортировка IP-таблицы ────────────────────────────────
@@ -800,26 +788,13 @@ class XrayMonitor(App):
             return
 
         # Ищем email по IP
-        email = ""
-        for e, ips in self.log_tail.client_ips.items():
-            if ip in ips:
-                email = e
-                break
-        if not email:
-            row = next((r for r in self._ip_db_cache if r.get("ip") == ip), None)
-            email = (row or {}).get("email", "")
+        email = self.ip_registry.get_email_for_ip(ip)
         label = f"{ip}" + (f"  ({email})" if email else "")
 
         def _on_confirm(confirmed: bool) -> None:
             if not confirmed:
                 return
-            # Чистим ТОЛЬКО локальную историю — конфиг и xray не трогаем
-            for e_ips in self.log_tail.client_ips.values():
-                e_ips.pop(ip, None)
-            self.xray.ip_bytes.pop(ip, None)
-            self.xray.ip_email.pop(ip, None)
-            self._ip_db_cache = [r for r in self._ip_db_cache if r.get("ip") != ip]
-            self.traffic_log.delete_by_ip(ip)
+            self.ip_registry.delete_ip(ip)
             self.notify(f"История IP {ip} очищена", severity="information")
             self._draw_ip_table()
 
