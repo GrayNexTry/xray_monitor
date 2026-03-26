@@ -69,26 +69,48 @@ class XrayMonitor(App):
     TITLE = "xray-monitor v10"
     CSS   = CSS
 
+    # Какие action-ы показывать на каждой вкладке
+    _TAB_ACTIONS: dict[str, frozenset] = {
+        "tab-dash":  frozenset({"toggle_pause", "toggle_sort", "toggle_filter", "show_qr"}),
+        "tab-keys":  frozenset({"show_qr", "edit_config", "check_config", "rollback_config"}),
+        "tab-sys":   frozenset(),
+        "tab-log":   frozenset({"reset_stats"}),
+        "tab-conn":  frozenset({"toggle_filter"}),
+        "tab-mgmt":  frozenset({"start_xray", "stop_xray", "restart_xray", "reload_xray",
+                                 "toggle_enable_xray", "update_xray",
+                                 "edit_config", "check_config", "rollback_config"}),
+        "tab-ip":    frozenset({"ip_sort_time", "ip_sort_name", "ip_sort_dn", "ip_sort_status"}),
+    }
+    _ALL_TAB_ACTIONS: frozenset = frozenset().union(*_TAB_ACTIONS.values())
+
     BINDINGS = [
-        # ── Видимые в Footer ────────────────────────────────
-        Binding("q", "quit",          "Выход",      show=True),
-        Binding("r", "reconnect",     "Реконнект",  show=True),
+        # ── Всегда видимые ──────────────────────────────────
+        Binding("q", "quit",       "Выход",     show=True),
+        Binding("r", "reconnect",  "Реконнект", show=True),
+        # ── tab-dash ────────────────────────────────────────
         Binding("p", "toggle_pause",  "Пауза",      show=True),
         Binding("s", "toggle_sort",   "Сортировка", show=True),
         Binding("f", "toggle_filter", "Фильтр",     show=True),
-        Binding("Q", "show_qr",       "QR-код",     show=True),
-        Binding("e", "edit_config",   "Редактор",   show=True),
-        # ── Скрытые (управление xray) ───────────────────────
-        Binding("H", "reload_xray",        "", show=False),
-        Binding("z", "reset_stats",        "", show=False),
-        Binding("R", "restart_xray",       "", show=False),
-        Binding("C", "check_config",       "", show=False),
-        Binding("B", "rollback_config",    "", show=False),
-        Binding("S", "start_xray",         "", show=False),
-        Binding("X", "stop_xray",          "", show=False),
-        Binding("U", "update_xray",        "", show=False),
-        Binding("E", "toggle_enable_xray", "", show=False),
-        # ── Вкладки 1–7 ─────────────────────────────────────
+        # ── tab-keys / tab-mgmt ─────────────────────────────
+        Binding("Q", "show_qr",           "QR-код",   show=True),
+        Binding("e", "edit_config",        "Редактор", show=True),
+        Binding("C", "check_config",       "Проверка", show=True),
+        Binding("B", "rollback_config",    "Откат",    show=True),
+        # ── tab-log ─────────────────────────────────────────
+        Binding("z", "reset_stats",        "Сброс",    show=True),
+        # ── tab-mgmt ────────────────────────────────────────
+        Binding("S", "start_xray",         "Старт",        show=True),
+        Binding("X", "stop_xray",          "Стоп",         show=True),
+        Binding("R", "restart_xray",       "Рестарт",      show=True),
+        Binding("H", "reload_xray",        "Релоад",       show=True),
+        Binding("E", "toggle_enable_xray", "Авт.запуск",   show=True),
+        Binding("U", "update_xray",        "Обновить",     show=True),
+        # ── tab-ip ──────────────────────────────────────────
+        Binding("t", "ip_sort_time",   "↕ Время",    show=True),
+        Binding("n", "ip_sort_name",   "↕ Имя",      show=True),
+        Binding("d", "ip_sort_dn",     "↕ Загрузка", show=True),
+        Binding("o", "ip_sort_status", "↕ Статус",   show=True),
+        # ── Вкладки 1–7 (скрытые) ───────────────────────────
         Binding("1", "tab_dash",  "", show=False),
         Binding("2", "tab_keys",  "", show=False),
         Binding("3", "tab_sys",   "", show=False),
@@ -96,13 +118,8 @@ class XrayMonitor(App):
         Binding("5", "tab_conn",  "", show=False),
         Binding("6", "tab_mgmt",  "", show=False),
         Binding("7", "tab_ip",    "", show=False),
-        # ── Прочее ──────────────────────────────────────────
-        Binding("escape", "clear_filter",  "", show=False),
-        # Сортировка IP-таблицы (активна только на вкладке 7)
-        Binding("t", "ip_sort_time",   "", show=False),
-        Binding("n", "ip_sort_name",   "", show=False),
-        Binding("d", "ip_sort_dn",     "", show=False),
-        Binding("o", "ip_sort_status", "", show=False),
+        # ── Прочее (скрытые) ────────────────────────────────
+        Binding("escape", "clear_filter", "", show=False),
     ]
 
     sort_by     = reactive("downlink")
@@ -137,6 +154,7 @@ class XrayMonitor(App):
         self._ip_db_cache:   list  = []              # кэш query_all_ips()
         self._ip_db_cache_t: float = 0
         self._current_ip:    str   = ""              # выбранный IP в таблице
+        self._active_tab:    str   = "tab-dash"      # текущая вкладка (для Footer)
 
     # ── Compose ──────────────────────────────────────────────
 
@@ -254,14 +272,26 @@ class XrayMonitor(App):
         except Exception:
             pass
 
+    def check_action(self, action: str, parameters: tuple) -> bool | None:
+        """Скрывает из Footer биндинги, нерелевантные текущей вкладке."""
+        if action in self._ALL_TAB_ACTIONS:
+            allowed = self._TAB_ACTIONS.get(self._active_tab, frozenset())
+            return None if action in allowed else False
+        return None
+
     def on_tabbed_content_tab_activated(
         self, event: TabbedContent.TabActivated
     ) -> None:
         if not event.tab:
             return
         raw = event.tab.id or ""
+        # Обновить активную вкладку и перерисовать Footer
+        self._active_tab = next(
+            (k for k in self._TAB_ACTIONS if k in raw), "tab-dash"
+        )
+        self.refresh_bindings()
         # IP Радар: сразу обновить таблицу при переключении на вкладку
-        if "tab-ip" in raw:
+        if self._active_tab == "tab-ip":
             self._ip_db_cache_t = 0
             self._draw_ip_table()
 
