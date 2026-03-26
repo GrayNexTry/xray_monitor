@@ -127,6 +127,7 @@ class XrayStats:
                             self.conn_events.append(ConnEvent("disconnect", email, ip))
                             self.conn_events.append(ConnEvent("connect", email, ip))
                             already_from_log.add((email, ip))
+                # Синхронизируем: оставляем только email из текущего снимка
                 self._prev_log_ips = {
                     em: dict(ips) for em, ips in log_ips.items()
                 }

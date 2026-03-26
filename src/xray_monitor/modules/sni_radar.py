@@ -81,11 +81,23 @@ _compiled = [
 ]
 
 
+_classify_cache: dict = {}
+_CLASSIFY_CACHE_MAX = 5000
+
+
 def classify(domain: str) -> Optional[tuple]:
     """Возвращает (tag, label, color_key) или None если домен не распознан."""
     if not domain:
         return None
+    cached = _classify_cache.get(domain)
+    if cached is not None:
+        return cached if cached else None
     for rx, tag, label, color in _compiled:
         if rx.search(domain):
-            return tag, label, color
+            result = (tag, label, color)
+            _classify_cache[domain] = result
+            return result
+    # Кэшируем miss как пустой tuple чтобы не повторять regex
+    if len(_classify_cache) < _CLASSIFY_CACHE_MAX:
+        _classify_cache[domain] = ()
     return None

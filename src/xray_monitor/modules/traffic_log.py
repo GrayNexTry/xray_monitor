@@ -86,6 +86,9 @@ class TrafficLog:
         self._conn       = self._open_db()
         self._load_today()
         self._maybe_migrate_json()
+        # Кэш read-запросов (TTL 30 с) — снижает нагрузку на SQLite
+        self._query_cache: dict = {}   # key -> (ts, result)
+        self._query_cache_ttl = 30
 
     def close(self) -> None:
         """Корректно закрывает SQLite-соединение. Вызывать при завершении приложения."""
@@ -94,6 +97,10 @@ class TrafficLog:
                 self._save_today_base()
             except Exception:
                 log.warning("failed to save today_base on close", exc_info=True)
+            try:
+                self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except Exception:
+                pass
             try:
                 self._conn.close()
             except Exception:
@@ -312,25 +319,46 @@ class TrafficLog:
             self._tick_n += 1
             if self._tick_n % _SAVE_EVERY == 0:
                 self._save_today_base()
+            # WAL checkpoint каждые ~5 минут (300 тиков)
+            if self._tick_n % 300 == 0:
+                try:
+                    self._conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                except Exception:
+                    pass
+
+    def _cached_query(self, key: str, fn):
+        """Возвращает кэшированный результат или вызывает fn()."""
+        import time as _t
+        now = _t.time()
+        cached = self._query_cache.get(key)
+        if cached and now - cached[0] < self._query_cache_ttl:
+            return cached[1]
+        result = fn()
+        self._query_cache[key] = (now, result)
+        return result
 
     def get_today(self) -> Dict[str, dict]:
-        today = date.today().isoformat()
-        with _LOCK:
-            rows = self._conn.execute(
-                "SELECT email, up, dn FROM daily_traffic WHERE date=?", (today,)
-            ).fetchall()
-            return {r[0]: {"up": r[1], "dn": r[2]} for r in rows}
+        def _q():
+            today = date.today().isoformat()
+            with _LOCK:
+                rows = self._conn.execute(
+                    "SELECT email, up, dn FROM daily_traffic WHERE date=?", (today,)
+                ).fetchall()
+                return {r[0]: {"up": r[1], "dn": r[2]} for r in rows}
+        return self._cached_query("today", _q)
 
     def get_period(self, n_days: int) -> Dict[str, dict]:
         """Суммарный трафик за последние N дней."""
-        cutoff = (date.today() - timedelta(days=n_days - 1)).isoformat()
-        with _LOCK:
-            rows = self._conn.execute(
-                "SELECT email, SUM(up), SUM(dn) FROM daily_traffic"
-                " WHERE date >= ? GROUP BY email",
-                (cutoff,),
-            ).fetchall()
-            return {r[0]: {"up": r[1] or 0, "dn": r[2] or 0} for r in rows}
+        def _q():
+            cutoff = (date.today() - timedelta(days=n_days - 1)).isoformat()
+            with _LOCK:
+                rows = self._conn.execute(
+                    "SELECT email, SUM(up), SUM(dn) FROM daily_traffic"
+                    " WHERE date >= ? GROUP BY email",
+                    (cutoff,),
+                ).fetchall()
+                return {r[0]: {"up": r[1] or 0, "dn": r[2] or 0} for r in rows}
+        return self._cached_query(f"period_{n_days}", _q)
 
     def get_weekly(self) -> Dict[str, dict]:
         return self.get_period(7)
