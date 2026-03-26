@@ -157,6 +157,7 @@ class XrayMonitor(App):
         self._ip_db_cache_t: float = 0
         self._current_ip:    str   = ""              # выбранный IP в таблице
         self._active_tab:    str   = "tab-dash"      # текущая вкладка (для Footer)
+        self._deleted_ips:   set  = set()            # IP скрытые пользователем (не пишем в БД)
 
     # ── Compose ──────────────────────────────────────────────
 
@@ -322,15 +323,24 @@ class XrayMonitor(App):
                 self.traffic_log.update(d["users"])   # SQLite с WAL — быстро
             # ── SNI Radar: сохраняем в БД каждые 10 тиков ────
             if self._tick_n % 10 == 0:
+                skip = self._deleted_ips
                 sni_buf = self.log_tail.flush_new_sni()
                 if sni_buf:
-                    self.traffic_log.save_ip_sni(sni_buf)
+                    sni_buf = {ip: v for ip, v in sni_buf.items() if ip not in skip}
+                    if sni_buf:
+                        self.traffic_log.save_ip_sni(sni_buf)
                 if self.xray.ip_bytes:
-                    self.traffic_log.save_ip_bytes(
-                        self.xray.ip_bytes, self.xray.ip_email
-                    )
+                    fb = {ip: v for ip, v in self.xray.ip_bytes.items() if ip not in skip}
+                    if fb:
+                        self.traffic_log.save_ip_bytes(fb, self.xray.ip_email)
                 if self.log_tail.client_ips:
-                    self.traffic_log.save_ip_connections(self.log_tail.client_ips)
+                    fc = {
+                        e: {ip: ts for ip, ts in ips.items() if ip not in skip}
+                        for e, ips in self.log_tail.client_ips.items()
+                    }
+                    fc = {e: ips for e, ips in fc.items() if ips}
+                    if fc:
+                        self.traffic_log.save_ip_connections(fc)
             self.call_from_thread(lambda: self._after_tick(d))
         except Exception as e:
             err_msg = str(e)
@@ -803,12 +813,15 @@ class XrayMonitor(App):
         def _on_confirm(confirmed: bool) -> None:
             if not confirmed:
                 return
-            # Чистим ТОЛЬКО локальную историю — конфиг и xray не трогаем
+            # Блеклист — больше не пишем в БД и не показываем в таблице
+            self._deleted_ips.add(ip)
+            # Чистим память
             for e_ips in self.log_tail.client_ips.values():
                 e_ips.pop(ip, None)
             self.xray.ip_bytes.pop(ip, None)
             self.xray.ip_email.pop(ip, None)
             self._ip_db_cache = [r for r in self._ip_db_cache if r.get("ip") != ip]
+            # Чистим SQLite
             self.traffic_log.delete_by_ip(ip)
             self.notify(f"История IP {ip} очищена", severity="information")
             self._draw_ip_table()
