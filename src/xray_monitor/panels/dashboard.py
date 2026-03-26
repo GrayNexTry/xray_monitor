@@ -20,76 +20,119 @@ def render_overview(app: "XrayMonitor", d: dict) -> Text:
     sy  = d.get("sys", {})
     su  = d["speed_up"]
     sd  = d["speed_down"]
-
-    t.append(f" {L['overview']}", C["accent"])
-    t.append(f"  {len(onl)} {L['online']}", C["dim"])
-    if sy.get("uptime"): t.append(f"  {fmt_up(sy['uptime'])}", C["dim"])
-    t.append("\n\n")
-
-    t.append(" UP  ", C["up"]);  t.append(f"{fmt_b(d['total_up']):>9}", C["up"])
-    t.append(f"  {fmt_s(su):>10}", C["up"]); t.append("  ")
-    t.append(spark(app.xray.up_hist, 24), C["spark_u"]); t.append("\n")
-    t.append(" DN  ", C["dn"]); t.append(f"{fmt_b(d['total_down']):>9}", C["dn"])
-    t.append(f"  {fmt_s(sd):>10}", C["dn"]); t.append("  ")
-    t.append(spark(app.xray.dn_hist, 24), C["spark_d"]); t.append("\n")
     tot = d["total_up"] + d["total_down"]
-    t.append(f" TOT ", C["total"]); t.append(f"{fmt_b(tot):>9}", C["total"])
-    t.append(f"  pk-up {fmt_s(app.xray.peak_up):>9}", C["dim"])
-    t.append(f"  pk-dn {fmt_s(app.xray.peak_dn):>9}", C["dim"]); t.append("\n")
-    t.append(f"  {L['session_up']:>10}: {fmt_b(app.xray.sess_up)}", C["dim"])
-    t.append(f"   {L['session_dn']:>10}: {fmt_b(app.xray.sess_dn)}\n", C["dim"])
+
+    # ── Заголовок ─────────────────────────────────────────────
+    t.append(f" {L['overview']}", C["accent"])
+    t.append(f"  {len(onl)} {L['online']}", C["online"] if onl else C["dim"])
+    if sy.get("uptime"):
+        t.append(f"  ·  {fmt_up(sy['uptime'])}", C["dim"])
+    t.append("\n")
+    t.append("  " + H * 50 + "\n", C["dim"])
+
+    # ── UP / DN / TOT ─────────────────────────────────────────
+    t.append(" UP  ", C["up"])
+    t.append(f"{fmt_b(d['total_up']):>10}", C["up"])
+    t.append(f"   {fmt_s(su):>11}", C["up"])
+    t.append("   ")
+    t.append(spark(app.xray.up_hist, 26), C["spark_u"])
     t.append("\n")
 
-    peak = max(app.xray.peak_up, app.xray.peak_dn, 1)
-    t.append(" UP  [", C["dim"]); t.append(gauge(su, peak, 28), C["up"])
-    t.append(f"]  {fmt_s(su)}\n", C["up"])
-    t.append(" DN  [", C["dim"]); t.append(gauge(sd, peak, 28), C["dn"])
-    t.append(f"]  {fmt_s(sd)}\n", C["dn"])
+    t.append(" DN  ", C["dn"])
+    t.append(f"{fmt_b(d['total_down']):>10}", C["dn"])
+    t.append(f"   {fmt_s(sd):>11}", C["dn"])
+    t.append("   ")
+    t.append(spark(app.xray.dn_hist, 26), C["spark_d"])
+    t.append("\n")
 
+    t.append(" TOT ", C["total"])
+    t.append(f"{fmt_b(tot):>10}", C["total"])
+    t.append(f"   pk↑ {fmt_s(app.xray.peak_up)}", C["dim"])
+    t.append(f"   pk↓ {fmt_s(app.xray.peak_dn)}\n", C["dim"])
+
+    # ── Gauges ────────────────────────────────────────────────
+    t.append("\n")
+    peak = max(app.xray.peak_up, app.xray.peak_dn, 1)
+    t.append(" UP  ", C["dim"])
+    t.append(gauge(su, peak, 32), C["up"])
+    t.append(f"  {fmt_s(su)}\n", C["up"])
+    t.append(" DN  ", C["dim"])
+    t.append(gauge(sd, peak, 32), C["dn"])
+    t.append(f"  {fmt_s(sd)}\n", C["dn"])
+
+    # ── Блокировки ────────────────────────────────────────────
     blk_tot  = app.log_tail._block_session
     blk_rate = app.log_tail.block_per_min()
     if blk_tot > 0 or app.log_tail._last_pos > 0:
         t.append("\n BLK ", C["err"])
-        t.append(f"{blk_tot:>7} blk", C["err"])
+        t.append(f"{blk_tot:>7}", C["err"])
         if blk_rate >= 0.1:
-            t.append(f"  {blk_rate:5.1f}/min", C["warn"])
+            t.append(f"   {blk_rate:.0f}/min", C["warn"])
         top = app.log_tail.top_blocked(3)
         if top:
             t.append("\n", "")
             for domain, cnt in top:
-                short = (domain[:28]+"...") if len(domain) > 29 else domain
-                t.append(f"      {short:<30}", C["dim"])
+                short = (domain[:30] + "…") if len(domain) > 31 else domain
+                t.append(f"       {short:<32}", C["dim"])
                 t.append(f" {cnt:>5}\n", C["err"])
         else:
             t.append("\n", "")
     return t
 
 
+def _short_up(s: int) -> str:
+    """Компактный аптайм без секунд при > 1 ч: '8h 25m', '2d 3h', '45m'."""
+    s = int(s)
+    d, s = divmod(s, 86400)
+    h, s = divmod(s, 3600)
+    m, _ = divmod(s, 60)
+    if d:   return f"{d}d {h}h"
+    if h:   return f"{h}h {m}m"
+    return f"{m}m"
+
+
 def render_sysmini(app: "XrayMonitor", d: dict) -> Text:
     t = Text()
     sy = d.get("sys", {})
-    t.append(f" {L['system']}\n\n", C["accent2"])
+    t.append(f" {L['system']}\n", C["accent2"])
+    t.append("  " + H * 30 + "\n", C["dim"])
+
     if sy:
-        rows = [
-            ("UP ",  L["uptime"],     fmt_up(sy.get("uptime", 0)),    C["total"]),
-            ("THR",  L["goroutines"], str(sy.get("goroutines", "?")), C["accent"]),
-            ("MEM",  L["alloc"],      fmt_b(sy.get("alloc", 0)),       C["up"]),
-            ("SYS",  L["mem"],        fmt_b(sy.get("sys", 0)),         C["dn"]),
-            ("GC ",  L["gc"],         f"x{sy.get('gc_runs', '?')}",    C["dim"]),
-        ]
-        lo = sy.get("live_objects", 0)
-        if lo: rows.append(("OBJ", L["objects"], f"{lo:,}", C["dim"]))
-        for pref, label, val, col in rows:
-            t.append(f" {pref} ", C["accent2"])
-            t.append(f"{label:<10}", C["dim"])
-            t.append(f"  {val}\n", col)
+        up_val  = _short_up(sy.get("uptime", 0))
+        gor_val = str(sy.get("goroutines", "?"))
+        mem_val = fmt_b(sy.get("alloc", 0))
+        sys_val = fmt_b(sy.get("sys", 0))
+        gc_val  = f"×{sy.get('gc_runs', '?')}"
+        lo      = sy.get("live_objects", 0)
+        obj_val = f"{lo:,}" if lo else ""
+
+        # Две колонки: метка+значение | метка+значение
+        def row2(l1: str, v1: str, c1: str, l2: str, v2: str, c2: str) -> None:
+            t.append(f" {l1:<4}", C["accent2"])
+            t.append(f"{v1:<10}", c1)
+            t.append(f"  {l2:<4}", C["accent2"])
+            t.append(f"{v2}\n", c2)
+
+        def row1(l1: str, v1: str, c1: str) -> None:
+            t.append(f" {l1:<4}", C["accent2"])
+            t.append(f"{v1}\n", c1)
+
+        row2("UP",  up_val,  C["total"],  "GOR", gor_val, C["accent"])
+        row2("MEM", mem_val, C["up"],     "SYS", sys_val, C["dn"])
+        row2("GC",  gc_val,  C["dim"],    "OBJ", obj_val, C["dim"])
     else:
-        t.append(f"  {L['waiting']}", C["dim"])
+        t.append(f"  {L['waiting']}\n", C["dim"])
 
     sd = app.sys_s.get()
     if sd.get("xray_pid"):
-        t.append(f"\n PID  xray  {sd['xray_pid']}\n", C["dim"])
-        if sd.get("xray_mem"): t.append(f" MEM  xray  {fmt_b(sd['xray_mem'])}\n", C["dim"])
+        t.append("\n", "")
+        t.append(f" PID  xray   {sd['xray_pid']}\n", C["dim"])
+        if sd.get("xray_mem"):
+            t.append(f" MEM  xray   {fmt_b(sd['xray_mem'])}\n", C["dim"])
+        if sd.get("xray_cpu") is not None:
+            cpu_v = sd["xray_cpu"]
+            if cpu_v > 0:
+                t.append(f" CPU  xray   {cpu_v:.1f}%\n", C["dim"])
     return t
 
 
@@ -184,8 +227,8 @@ def render_users(app: "XrayMonitor", d: dict) -> Text:
 
     t.append(f" {L['users']}", C["accent"])
     if filt: t.append(f"  /{filt}", C["accent2"])
-    else:    t.append(f"  {n_on}/{len(users)} {L['online']}", C["dim"])
-    t.append("\n  " + H*36 + "\n", C["dim"])
+    else:    t.append(f"  {n_on}/{len(users)} {L['online']}", C["online"] if n_on else C["dim"])
+    t.append("\n  " + H * 38 + "\n", C["dim"])
 
     filtered = {e: v for e, v in users.items() if not filt or filt in e.lower()}
     sfn = {
@@ -254,18 +297,18 @@ def render_users(app: "XrayMonitor", d: dict) -> Text:
         if ips and is_on:
             ip_list = sorted(ips.items(), key=lambda x: x[1], reverse=True)
             for i, (ip, ts) in enumerate(ip_list):
-                pfx = "|" if i < len(ip_list)-1 else "L"
+                pfx = "|" if i < len(ip_list) - 1 else "L"
                 t.append(f"   {pfx} ", C["dim"])
                 t.append(f"{ip:<18}", C["dim"])
-                if app.geo_on:
-                    geo_str, asn_str, is_hosting = app.geo.fmt_full(ip)
-                    t.append(f"{geo_str:<22}", C["accent2"])
-                    if asn_str:
-                        asn_col = C["warn"] if is_hosting else C["dim"]
-                        warn    = " [!datacenter]" if is_hosting else ""
-                        t.append(f"{asn_str:<28}{warn}", asn_col)
 
-                # ── SNI Radar: теги сервисов ──────────────────
+                # ── Per-IP байты ↓ ────────────────────────────
+                ip_b = app.xray.ip_bytes.get(ip)
+                if ip_b and ip_b[1] > 1024:
+                    t.append(f"  {fmt_b(int(ip_b[1])):>9} ↓", C["dn"])
+                else:
+                    t.append(f"  {'':>11}", "")
+
+                # ── SNI Radar: до 4 тегов сервисов ───────────
                 sni_buf = app.log_tail.ip_sni.get(ip)
                 if sni_buf:
                     seen_tags: set = set()
@@ -275,18 +318,13 @@ def render_users(app: "XrayMonitor", d: dict) -> Text:
                             _, label, col = cls
                             t.append(f" [{label}]", C[col])
                             seen_tags.add(cls[0])
-                            if len(seen_tags) >= 3:
+                            if len(seen_tags) >= 4:
                                 break
 
-                # ── Per-IP байты (суммарно за сессию/из БД) ──
-                ip_b = app.xray.ip_bytes.get(ip)
-                if ip_b and ip_b[1] > 1024:
-                    t.append(f"  {fmt_b(int(ip_b[1]))} dn", C["dn"])
+                t.append(f"  {fmt_ts(ts)}\n", C["dim"])
 
-                t.append(f" {fmt_ts(ts)}\n", C["dim"])
-
-        if idx < len(su_list)-1:
-            t.append("  " + "."*30 + "\n", C["dim"])
+        if idx < len(su_list) - 1:
+            t.append("  " + H * 30 + "\n", C["dim"])
 
     if not users and not online_set:
         t.append(f"\n  {L['no_users']}\n", C["dim"])

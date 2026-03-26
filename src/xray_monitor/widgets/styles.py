@@ -8,9 +8,9 @@ Screen { background: $surface; }
 #dash-cols { height: 1fr; }
 #dash-left { width: 2fr; height: 1fr; }
 #dash-right{ width: 1fr; height: 1fr; margin-left: 1; }
-#top-row   { height: auto; max-height: 14; }
+#top-row   { height: auto; max-height: 20; }
 #ov-box    { height: auto; border: tall $accent; padding: 0 1; width: 1fr; }
-#sys-box   { width: 30; border: tall $secondary; padding: 0 1; }
+#sys-box   { width: 36; border: tall $secondary; padding: 0 1; }
 TrafficW   { height: 1fr; border: tall $primary; padding: 0 1; overflow-y: auto; }
 UsersW     { height: 1fr; border: tall $primary; padding: 0 1; overflow-y: auto; }
 #filter-bar   { height: 3; padding: 0 1; display: none; }
