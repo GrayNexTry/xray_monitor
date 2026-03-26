@@ -46,6 +46,7 @@ def render_overview(app: "XrayMonitor", d: dict) -> Text:
     t.append("   ")
     t.append(spark(app.xray.dn_hist, 26), C["spark_d"])
 
+    t.append("\n")
     t.append("  " + H * 3 + "\n", C["dim"])
     
     t.append(" TOT ", C["total"])
