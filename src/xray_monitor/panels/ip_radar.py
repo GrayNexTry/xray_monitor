@@ -33,26 +33,16 @@ def render_ip_detail(app: "XrayMonitor", ip: str) -> Text:
     t.append("  " + H * 60 + "\n", C["dim"])
 
     # ── Пользователь ─────────────────────────────────────────
-    email = ""
-    log_last_ts: float = 0
-    for e, ips in app.log_tail.client_ips.items():
-        if ip in ips:
-            email = e
-            log_last_ts = max(log_last_ts, ips[ip])
-
-    # Из кэша БД если нет в памяти
-    db_row = next((r for r in getattr(app, "_ip_db_cache", []) if r["ip"] == ip), None)
-    if not email and db_row:
-        email = db_row.get("email", "")
+    rec = app.ip_registry.get_record(ip)
+    email = rec.email if rec else ""
 
     if email:
         t.append(f"  Пользователь:  ", C["accent2"])
         t.append(f"{email}\n", "bold")
 
     # ── Временны́е метки ──────────────────────────────────────
-    first_ts   = db_row.get("first_seen",  0) if db_row else 0
-    last_active = db_row.get("last_active", 0) if db_row else 0
-    last_active = max(last_active, log_last_ts)
+    first_ts    = rec.first_seen  if rec else 0
+    last_active = rec.last_active if rec else 0
 
     if first_ts > 0:
         t.append(f"  Первый раз:    ", C["accent2"])
@@ -95,13 +85,9 @@ def render_ip_detail(app: "XrayMonitor", ip: str) -> Text:
             t.append("\n")
 
     # ── Трафик ───────────────────────────────────────────────
-    up = dn = 0
-    if ip in app.xray.ip_bytes:
-        up = int(app.xray.ip_bytes[ip][0])
-        dn = int(app.xray.ip_bytes[ip][1])
-    elif db_row:
-        up = db_row.get("up", 0)
-        dn = db_row.get("dn", 0)
+    ip_up, ip_dn = app.ip_registry.get_ip_bytes(ip)
+    up = int(ip_up)
+    dn = int(ip_dn)
 
     if up > 0 or dn > 0:
         t.append("  Накопленный трафик:\n", C["accent"])
@@ -121,7 +107,7 @@ def render_ip_detail(app: "XrayMonitor", ip: str) -> Text:
         sni_map[domain] = {"hits": hits, "tag": tag, "last_seen": last_seen}
 
     # Добавляем из памяти (только те, которых нет в БД — чтобы не дублировать)
-    mem_buf = app.log_tail.ip_sni.get(ip)
+    mem_buf = app.ip_registry.get_ip_sni(ip)
     if mem_buf:
         mem_counts: dict = {}
         for domain, _ts in mem_buf:
@@ -173,45 +159,20 @@ def build_ip_table_rows(app: "XrayMonitor") -> list:
     now = time.time()
 
     # ── 1. Определяем онлайн-IP ──────────────────────────────
-    grpc_online: set = set()
-    for ips in app.xray._prev_ips.values():
-        grpc_online.update(ips)
-    if not grpc_online and app.xray._prev_online:
-        recent = now - 300
-        for em in app.xray._prev_online:
-            for ip_m, ts_m in app.log_tail.client_ips.get(em, {}).items():
-                if ts_m > recent:
-                    grpc_online.add(ip_m)
+    grpc_online = app.ip_registry.get_online_ips()
 
-    # ── 2. Объединяем кэш БД + память ───────────────────────
-    # Стартуем с кэша БД
+    # ── 2. Все записи из IPRegistry ──────────────────────────
+    all_records = app.ip_registry.get_all_records()
     merged: dict = {}   # ip -> dict
-    for r in getattr(app, "_ip_db_cache", []):
-        merged[r["ip"]] = dict(r)
-
-    # Перекрываем/дополняем из log_tail (более свежие данные)
-    for em, ips in app.log_tail.client_ips.items():
-        for ip_m, ts_m in ips.items():
-            if ip_m not in merged:
-                merged[ip_m] = {
-                    "ip":          ip_m,
-                    "email":       em,
-                    "up":          0,
-                    "dn":          0,
-                    "first_seen":  int(ts_m),
-                    "last_active": int(ts_m),
-                }
-            else:
-                rec = merged[ip_m]
-                if ts_m > rec.get("last_active", 0):
-                    rec["last_active"] = int(ts_m)
-                    rec["email"] = em   # обновляем email
-
-    # Перекрываем трафик из живой памяти gRPC
-    for ip_m, b in app.xray.ip_bytes.items():
-        if ip_m in merged:
-            merged[ip_m]["up"] = int(b[0])
-            merged[ip_m]["dn"] = int(b[1])
+    for ip_m, rec in all_records.items():
+        merged[ip_m] = {
+            "ip":          ip_m,
+            "email":       rec.email,
+            "up":          int(rec.up),
+            "dn":          int(rec.dn),
+            "first_seen":  int(rec.first_seen),
+            "last_active": int(rec.last_active),
+        }
 
     # ── 3. Сортировка ────────────────────────────────────────
     sort_col = getattr(app, "_ip_sort_col", "last_active")
@@ -268,7 +229,7 @@ def build_ip_table_rows(app: "XrayMonitor") -> list:
 
         # Топ-сервис (из памяти SNI)
         svc_s = ""
-        mem_buf = app.log_tail.ip_sni.get(ip_k)
+        mem_buf = app.ip_registry.get_ip_sni(ip_k)
         if mem_buf:
             dc: dict = {}
             for dom, _ in mem_buf:

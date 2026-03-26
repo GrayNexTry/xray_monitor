@@ -296,14 +296,14 @@ def render_users(app: "XrayMonitor", d: dict) -> Text:
                 t.append(f"{ip:<18}", C["dim"])
 
                 # ── Per-IP байты ↓ ────────────────────────────
-                ip_b = app.xray.ip_bytes.get(ip)
-                if ip_b and ip_b[1] > 1024:
-                    t.append(f"  {fmt_b(int(ip_b[1])):>9} ↓", C["dn"])
+                ip_up, ip_dn = app.ip_registry.get_ip_bytes(ip)
+                if ip_dn > 1024:
+                    t.append(f"  {fmt_b(int(ip_dn)):>9} ↓", C["dn"])
                 else:
                     t.append(f"  {'':>11}", "")
 
                 # ── SNI Radar: до 4 тегов сервисов ───────────
-                sni_buf = app.log_tail.ip_sni.get(ip)
+                sni_buf = app.ip_registry.get_ip_sni(ip)
                 if sni_buf:
                     seen_tags: set = set()
                     for domain, _ts in reversed(list(sni_buf)):

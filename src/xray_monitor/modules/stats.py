@@ -54,11 +54,8 @@ class XrayStats:
         self._prev_log_ips: dict = {}   # email -> {ip: ts} — предыдущий снимок лога
         self._log_initialized: bool = False  # первый снимок не генерирует события
 
-        # SNI Radar: накопленные байты по IP (пропорциональная оценка)
-        # {ip: [up, dn]}  — начальное значение загружается из БД при старте
-        self.ip_bytes: dict = {}
-        # Маппинг ip -> email (для БД)
-        self.ip_email: dict = {}
+        # ip_registry передаётся извне (из app) для записи per-IP трафика
+        self._ip_registry = None
 
     # ── Подключение ──────────────────────────────────────────
 
@@ -211,7 +208,8 @@ class XrayStats:
             self.sess_up  = 0.0
             self.sess_dn  = 0.0
 
-    def fetch(self, log_ips: dict | None = None) -> dict:
+    def fetch(self, log_ips: dict | None = None,
+              ip_registry=None) -> dict:
         if not self.stub:
             self.connect()
         stub = self.stub
@@ -296,19 +294,14 @@ class XrayStats:
                                     active_ips = []
                             else:
                                 active_ips = []
-                            if active_ips:
+                            if active_ips and ip_registry is not None:
                                 per = len(active_ips)
                                 for ip in active_ips:
-                                    self.ip_email[ip] = em
-                                    entry = self.ip_bytes.get(ip)
-                                    if entry is None:
-                                        self.ip_bytes[ip] = [
-                                            delta_up / per,
-                                            delta_dn / per,
-                                        ]
-                                    else:
-                                        entry[0] += delta_up / per
-                                        entry[1] += delta_dn / per
+                                    ip_registry.update_traffic(
+                                        ip, em,
+                                        delta_up / per,
+                                        delta_dn / per,
+                                    )
 
                     if self._fetch_n % _PRUNE_INTERVAL == 0:
                         self._prune_stale(active_users)
@@ -345,6 +338,12 @@ class XrayStats:
             with self._lock:
                 self._track(R["online_users"], R["user_ips"],
                             log_ips=log_ips)
+                # Update online IPs in registry
+                if ip_registry is not None:
+                    online_ips: set[str] = set()
+                    for ips_set in self._prev_ips.values():
+                        online_ips.update(ips_set)
+                    ip_registry.update_online(online_ips)
 
         except Exception as e:
             err_msg = str(e)
