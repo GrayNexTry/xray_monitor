@@ -31,12 +31,12 @@ class IPTableW(DataTable):
              загружено, отдано, топ-сервис, страна.
     """
 
-    def on_key(self, event) -> None:
-        if event.key == "delete":
-            event.stop()
-            action = getattr(self.app, "action_delete_ip_user", None)
-            if action:
-                action()
+    def key_delete(self, event) -> None:
+        """Textual вызывает key_* методы напрямую — надёжнее on_key для DataTable."""
+        event.stop()
+        action = getattr(self.app, "action_delete_ip_user", None)
+        if action:
+            action()
 
     def on_mount(self) -> None:
         self.cursor_type  = "row"

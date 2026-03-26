@@ -775,8 +775,18 @@ class XrayMonitor(App):
 
     def action_delete_ip_user(self) -> None:
         """Del — удалить пользователя выбранного IP с подтверждением."""
+        # Пробуем взять IP из кэша; если пусто — читаем курсор таблицы напрямую
         ip = self._current_ip
         if not ip:
+            try:
+                tbl = self.query_one(IPTableW)
+                rk  = tbl.get_row_at(tbl.cursor_row)
+                # get_row_at возвращает список ячеек; IP в колонке 2 (индекс 2)
+                ip  = str(rk[2]) if rk and len(rk) > 2 else ""
+            except Exception:
+                pass
+        if not ip:
+            self.notify("Выберите строку в таблице (↑↓)", severity="warning")
             return
 
         # Ищем email по IP
@@ -789,21 +799,20 @@ class XrayMonitor(App):
             row = next((r for r in self._ip_db_cache if r.get("ip") == ip), None)
             email = (row or {}).get("email", "")
         if not email:
-            self.query_one(StatusBar).update(f" Нет email для IP {ip}")
+            self.notify(f"Нет пользователя для IP {ip}", severity="warning")
             return
 
         def _on_confirm(confirmed: bool) -> None:
             if not confirmed:
                 return
             ok, msg = self.cfg.delete_client(email)
-            self.query_one(StatusBar).update(f" {msg}")
+            self.notify(msg, severity="information" if ok else "error")
             if ok:
-                # Горячий релоад xray
                 import threading
                 from .modules.xray_manager import reload_xray
                 def _reload() -> None:
                     reload_xray()
-                    self.call_from_thread(lambda: self._draw_ip_table())
+                    self.call_from_thread(self._draw_ip_table)
                 threading.Thread(target=_reload, daemon=True).start()
 
         self.push_screen(DeleteConfirmScreen(email), _on_confirm)
