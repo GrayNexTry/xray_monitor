@@ -39,7 +39,7 @@ from .widgets import (
     CSS, OvBox, SysBox, TrafficW, UsersW,
     KeysLeft, KeysRight,
     SysCpuRam, SysDisk, SysNet, SysProcs, SysPing,
-    LogW, ConnW, MgmtW, StatusBar, QRModal,
+    LogW, ConnW, MgmtW, MgmtKeysW, StatusBar, QRModal,
     IPTableW, IPDetailW, IPSortBar,
 )
 from .panels.dashboard   import render_overview, render_sysmini, render_traffic, render_users
@@ -47,7 +47,7 @@ from .panels.system      import render_cpu_ram, render_disk, render_net, render_
 from .panels.logs        import render_log
 from .panels.connections import render_connections
 from .panels.keys        import render_keys_left, render_keys_right
-from .panels.management  import start_management_update
+from .panels.management  import start_management_update, build_hotkeys_text
 from .panels.ip_radar    import render_ip_detail, build_ip_table_rows
 
 
@@ -210,8 +210,11 @@ class XrayMonitor(App):
                         yield IPDetailW("  Выберите IP стрелками ↑↓",
                                         id="ip-detail")
             with TabPane(L["tab_mgmt"], id="tab-mgmt"):
-                with VerticalScroll(id="mgmt-scroll"):
-                    yield MgmtW("...")
+                with Horizontal(id="mgmt-layout"):
+                    with VerticalScroll(id="mgmt-scroll"):
+                        yield MgmtW("...")
+                    with Vertical(id="mgmt-right"):
+                        yield MgmtKeysW("...", id="mgmt-keys")
                     
         yield StatusBar("...", id="status")
         yield Footer()
@@ -276,8 +279,8 @@ class XrayMonitor(App):
         """Скрывает из Footer биндинги, нерелевантные текущей вкладке."""
         if action in self._ALL_TAB_ACTIONS:
             allowed = self._TAB_ACTIONS.get(self._active_tab, frozenset())
-            return None if action in allowed else False
-        return None
+            return True if action in allowed else False
+        return True  # глобальные биндинги (q, r, вкладки) — всегда активны
 
     def on_tabbed_content_tab_activated(
         self, event: TabbedContent.TabActivated
@@ -472,6 +475,14 @@ class XrayMonitor(App):
         except Exception: pass
 
     def _draw_mgmt_tab(self) -> None:
+        # Горячие клавиши статичны — рендерим один раз
+        try:
+            keys_w = self.query_one(MgmtKeysW)
+            if str(keys_w.renderable) == "...":
+                keys_w.update(build_hotkeys_text())
+        except Exception:
+            pass
+
         def _set(t: Text) -> None:
             try: self.query_one(MgmtW).update(t)
             except Exception: pass

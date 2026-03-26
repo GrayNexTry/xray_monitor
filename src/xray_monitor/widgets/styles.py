@@ -43,15 +43,20 @@ SysPing     { height: 1fr; }
 /* ── Лог / Подключения / Управление ──────────────── */
 LogW  { height: auto; padding: 0 1; }
 ConnW { height: auto; padding: 0 1; }
-MgmtW { height: auto; padding: 0 1; }
+MgmtW     { height: auto; padding: 0 1; }
+MgmtKeysW { height: auto; padding: 1 2; }
 
 #log-scroll  { height: 1fr; border: round $panel; }
 #conn-scroll { height: 1fr; border: round $panel; }
-#mgmt-scroll { height: 1fr; border: round $panel; }
 
 #log-scroll  > .vertical-scrollbar  { width: 1; }
 #conn-scroll > .vertical-scrollbar  { width: 1; }
-#mgmt-scroll > .vertical-scrollbar  { width: 1; }
+
+/* ── Управление: два столбца ─────────────────────── */
+#mgmt-layout  { height: 1fr; }
+#mgmt-scroll  { width: 1fr; height: 1fr; border: round $panel; }
+#mgmt-scroll > .vertical-scrollbar { width: 1; }
+#mgmt-right   { width: 52; height: 1fr; border: round $panel; margin-left: 1; }
 
 /* ── IP Радар ─────────────────────────────────────── */
 #ip-radar-tab     { height: 1fr; padding: 0 1; }

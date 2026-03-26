@@ -5,7 +5,7 @@ from .components import (
     OvBox, SysBox, TrafficW, UsersW,
     KeysLeft, KeysRight,
     SysCpuRam, SysDisk, SysNet, SysProcs, SysPing,
-    LogW, ConnW, MgmtW, StatusBar,
+    LogW, ConnW, MgmtW, MgmtKeysW, StatusBar,
     IPTableW, IPDetailW, IPSortBar,
 )
 from .qr_modal import QRModal
@@ -15,7 +15,7 @@ __all__ = [
     "OvBox", "SysBox", "TrafficW", "UsersW",
     "KeysLeft", "KeysRight",
     "SysCpuRam", "SysDisk", "SysNet", "SysProcs", "SysPing",
-    "LogW", "ConnW", "MgmtW", "StatusBar",
+    "LogW", "ConnW", "MgmtW", "MgmtKeysW", "StatusBar",
     "IPTableW", "IPDetailW", "IPSortBar",
     "QRModal",
 ]
