@@ -40,16 +40,18 @@ def render_overview(app: "XrayMonitor", d: dict) -> Text:
 
     t.append(" DN  ", C["dn"])
     t.append(f"{fmt_b(d['total_down']):>10}", C["dn"])
+    
+    t.append("\n")
+    
     t.append(f"   {fmt_s(sd):>11}", C["dn"])
     t.append("   ")
     t.append(spark(app.xray.dn_hist, 26), C["spark_d"])
     t.append("\n")
 
-    t.append("\n")
-
     t.append(" TOT ", C["total"])
     t.append(f"{fmt_b(tot):>10}", C["total"])
     t.append(f"   pk↑ {fmt_s(app.xray.peak_up)}", C["dim"])
+    t.append("\n")
     t.append(f"   pk↓ {fmt_s(app.xray.peak_dn)}\n", C["dim"])
 
     # ── Gauges ────────────────────────────────────────────────
