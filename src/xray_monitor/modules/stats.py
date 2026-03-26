@@ -269,10 +269,25 @@ class XrayStats:
                         self._update_user_hist(em, su, sd)
 
                         # ── Per-IP byte accumulation ──────────────
+                        # Распределяем трафик ТОЛЬКО на активные IP:
+                        # 1) IP подтверждённые gRPC (self._prev_ips) → самые надёжные
+                        # 2) Иначе — единственный самый свежий IP из лога
+                        # Это предотвращает размазывание трафика по всем IP за 24 ч.
                         delta_up = max(0, ud["uplink"]   - pu)
                         delta_dn = max(0, ud["downlink"] - pd)
                         if (delta_up > 0 or delta_dn > 0) and log_ips:
-                            active_ips = list((log_ips.get(em) or {}).keys())
+                            log_em = log_ips.get(em) or {}
+                            grpc_online_ips = self._prev_ips.get(em, set())
+                            if grpc_online_ips:
+                                # Пересечение с логом; если пусто — берём gRPC IPs как есть
+                                active_ips = [ip for ip in grpc_online_ips if ip in log_em]
+                                if not active_ips:
+                                    active_ips = list(grpc_online_ips)
+                            elif log_em:
+                                # Только самый свежий IP из лога
+                                active_ips = [max(log_em, key=log_em.get)]  # type: ignore[arg-type]
+                            else:
+                                active_ips = []
                             if active_ips:
                                 per = len(active_ips)
                                 for ip in active_ips:

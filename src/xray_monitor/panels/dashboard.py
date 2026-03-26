@@ -120,9 +120,6 @@ def render_traffic(app: "XrayMonitor", d: dict) -> Text:
 
     outbounds = d.get("outbounds", {})
     if outbounds:
-        t.append(f"\n {L['outbound']} / ROUTING\n", C["accent"])
-        sep(); hdr(); sep()
-        total_out = sum(v.get("uplink", 0)+v.get("downlink", 0) for v in outbounds.values())
         DIRECT = {"direct", "freedom", "bypass"}
         BLOCK  = {"block", "blackhole", "banned", "ads", "adblock"}
         PROXY  = {"warp", "cloudflare", "proxy", "relay", "socks", "vmess", "vless", "trojan"}
@@ -134,35 +131,43 @@ def render_traffic(app: "XrayMonitor", d: dict) -> Text:
             if any(x in tl for x in PROXY):  return "proxy"
             return "other"
 
-        for tag, v in sorted(outbounds.items(),
-                             key=lambda x: x[1].get("downlink", 0)+x[1].get("uplink", 0),
-                             reverse=True):
-            up = v.get("uplink", 0); dn = v.get("downlink", 0); tot = up + dn
-            name = (tag[:21]+"...") if len(tag) > 22 else tag
-            kind = classify(tag)
-            nc   = {"block": C["err"], "direct": C["ok"], "proxy": C["accent"]}.get(kind, C["dim"])
-            icon = {"block": "[X]", "direct": "[->]", "proxy": "[~]"}.get(kind, "[?]")
-            t.append(f"  {icon} ", nc)
-            t.append(f"{name:<20}", "bold")
-            t.append(f"{fmt_b(up):>12}", C["up"])
-            t.append(f"{fmt_b(dn):>12}", C["dn"])
-            t.append(f"{fmt_b(tot):>12}", C["total"])
-            if total_out > 0:
-                t.append(f"  {gauge(tot, total_out, 8)} {tot/total_out*100:4.1f}%\n", nc)
-            else:
-                t.append("\n", "")
+        # Исключаем block-записи (blackhole): они всегда 0 и только засоряют вывод
+        visible = {tag: v for tag, v in outbounds.items() if classify(tag) != "block"}
 
-        if total_out > 0:
-            t.append(f"\n  {L['summary']}: ", C["dim"])
-            groups: dict = {}
-            for tag, v in outbounds.items():
-                k   = classify(tag)
-                tot = v.get("uplink", 0) + v.get("downlink", 0)
-                groups[k] = groups.get(k, 0) + tot
-            for kind, tot in sorted(groups.items(), key=lambda x: x[1], reverse=True):
-                col = {"block": C["err"], "direct": C["ok"], "proxy": C["accent"]}.get(kind, C["dim"])
-                t.append(f"  {kind} {tot/total_out*100:.0f}%", col)
-            t.append("\n", "")
+        if visible:
+            t.append(f"\n {L['outbound']} / ROUTING\n", C["accent"])
+            sep(); hdr(); sep()
+            total_out = sum(v.get("uplink", 0)+v.get("downlink", 0) for v in visible.values())
+
+            for tag, v in sorted(visible.items(),
+                                 key=lambda x: x[1].get("downlink", 0)+x[1].get("uplink", 0),
+                                 reverse=True):
+                up = v.get("uplink", 0); dn = v.get("downlink", 0); tot = up + dn
+                name = (tag[:21]+"...") if len(tag) > 22 else tag
+                kind = classify(tag)
+                nc   = {"direct": C["ok"], "proxy": C["accent"]}.get(kind, C["dim"])
+                icon = {"direct": "[->]", "proxy": "[~]"}.get(kind, "[?]")
+                t.append(f"  {icon} ", nc)
+                t.append(f"{name:<20}", "bold")
+                t.append(f"{fmt_b(up):>12}", C["up"])
+                t.append(f"{fmt_b(dn):>12}", C["dn"])
+                t.append(f"{fmt_b(tot):>12}", C["total"])
+                if total_out > 0:
+                    t.append(f"  {gauge(tot, total_out, 8)} {tot/total_out*100:4.1f}%\n", nc)
+                else:
+                    t.append("\n", "")
+
+            if total_out > 0:
+                t.append(f"\n  {L['summary']}: ", C["dim"])
+                groups: dict = {}
+                for tag, v in visible.items():
+                    k   = classify(tag)
+                    tot = v.get("uplink", 0) + v.get("downlink", 0)
+                    groups[k] = groups.get(k, 0) + tot
+                for kind, tot in sorted(groups.items(), key=lambda x: x[1], reverse=True):
+                    col = {"direct": C["ok"], "proxy": C["accent"]}.get(kind, C["dim"])
+                    t.append(f"  {kind} {tot/total_out*100:.0f}%", col)
+                t.append("\n", "")
 
     if not inbounds and not outbounds:
         t.append(f"\n  {L['no_traffic']}\n", C["dim"])
