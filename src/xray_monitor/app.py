@@ -798,62 +798,19 @@ class XrayMonitor(App):
         if not email:
             row = next((r for r in self._ip_db_cache if r.get("ip") == ip), None)
             email = (row or {}).get("email", "")
-        if email:
-            # ── Полное удаление: конфиг + вся память + БД ────
-            def _on_confirm_full(confirmed: bool) -> None:
-                if not confirmed:
-                    return
-                ok, msg = self.cfg.delete_client(email)
-                if ok:
-                    short = email.split("@")[0]
-                    # Собираем все IP пользователя до очистки
-                    user_ips = set(
-                        self.log_tail.client_ips.get(email, {}).keys()
-                    ) | set(
-                        self.log_tail.client_ips.get(short, {}).keys()
-                    ) | {
-                        r["ip"] for r in self._ip_db_cache
-                        if r.get("email") in (email, short)
-                    }
-                    # log_tail
-                    self.log_tail.client_ips.pop(email, None)
-                    self.log_tail.client_ips.pop(short, None)
-                    # xray memory
-                    for uip in user_ips:
-                        self.xray.ip_bytes.pop(uip, None)
-                        self.xray.ip_email.pop(uip, None)
-                    # in-memory cache
-                    self._ip_db_cache = [
-                        r for r in self._ip_db_cache
-                        if r.get("email") not in (email, short)
-                    ]
-                    # SQLite
-                    n = self.traffic_log.delete_by_email(email)
-                    self.notify(f"Удалён {email} · {n} IP из БД", severity="information")
-                    import threading
-                    from .modules.xray_manager import reload_xray
-                    def _reload() -> None:
-                        reload_xray()
-                        self.call_from_thread(self._draw_ip_table)
-                    threading.Thread(target=_reload, daemon=True).start()
-                else:
-                    self.notify(msg, severity="error")
+        label = f"{ip}" + (f"  ({email})" if email else "")
 
-            self.push_screen(DeleteConfirmScreen(email), _on_confirm_full)
+        def _on_confirm(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            # Чистим ТОЛЬКО локальную историю — конфиг и xray не трогаем
+            for e_ips in self.log_tail.client_ips.values():
+                e_ips.pop(ip, None)
+            self.xray.ip_bytes.pop(ip, None)
+            self.xray.ip_email.pop(ip, None)
+            self._ip_db_cache = [r for r in self._ip_db_cache if r.get("ip") != ip]
+            self.traffic_log.delete_by_ip(ip)
+            self.notify(f"История IP {ip} очищена", severity="information")
+            self._draw_ip_table()
 
-        else:
-            # ── Только история (email неизвестен) ────────────
-            def _on_confirm_ip(confirmed: bool) -> None:
-                if not confirmed:
-                    return
-                # Все источники памяти
-                for e, ips in list(self.log_tail.client_ips.items()):
-                    ips.pop(ip, None)
-                self.xray.ip_bytes.pop(ip, None)
-                self.xray.ip_email.pop(ip, None)
-                self._ip_db_cache = [r for r in self._ip_db_cache if r.get("ip") != ip]
-                self.traffic_log.delete_by_ip(ip)
-                self.notify(f"IP {ip} удалён из истории", severity="information")
-                self._draw_ip_table()
-
-            self.push_screen(DeleteConfirmScreen(f"{ip}  (только история)"), _on_confirm_ip)
+        self.push_screen(DeleteConfirmScreen(label), _on_confirm)
