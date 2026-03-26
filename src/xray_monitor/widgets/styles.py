@@ -32,13 +32,13 @@ UsersW     { height: 1fr; border: round $panel; padding: 0 1; overflow-y: auto; 
 #sys-disk   { width: 1fr; border: round $panel; padding: 0 1; margin-left: 1; }
 #sys-net    { width: 1fr; border: round $panel; padding: 0 1; margin-left: 1; }
 #sys-bottom { height: 1fr; }
-#sys-procs  { width: 1fr; border: round $panel; padding: 0 1; overflow-y: auto; }
-#sys-ping   { width: 38;  border: round $panel; padding: 0 1; margin-left: 1; }
-SysCpuRam  { height: 1fr; }
-SysDisk    { height: 1fr; }
-SysNet     { height: 1fr; }
-SysProcs   { height: 1fr; }
-SysPing    { height: 1fr; }
+#sys-procs  { width: 1fr; height: 1fr; border: round $panel; padding: 0 1; overflow-y: auto; }
+#sys-ping   { width: 38;  height: 1fr; border: round $panel; padding: 0 1; margin-left: 1; }
+SysCpuRam   { height: 1fr; }
+SysDisk     { height: 1fr; }
+SysNet      { height: 1fr; }
+SysProcs    { height: 1fr; }
+SysPing     { height: 1fr; }
 
 /* ── Лог / Подключения / Управление ──────────────── */
 LogW  { height: auto; padding: 0 1; }
