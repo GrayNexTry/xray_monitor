@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import signal
+import tempfile
 import time
 import json
 import shutil
@@ -13,6 +15,8 @@ import subprocess
 import threading
 from typing import Optional, Tuple, Callable
 from urllib.request import urlopen, Request
+
+log = logging.getLogger(__name__)
 
 _GITHUB_API  = "https://api.github.com/repos/XTLS/Xray-core/releases/latest"
 _XRAY_BINS   = ["/usr/local/bin/xray", "/usr/bin/xray"]
@@ -26,10 +30,12 @@ def find_xray_binary() -> Optional[str]:
     for path in _XRAY_BINS:
         if os.path.isfile(path) and os.access(path, os.X_OK):
             return path
+    # which (Linux/macOS) или where (Windows)
+    which_cmd = "where" if os.name == "nt" else "which"
     try:
-        r = subprocess.run(["which", "xray"], capture_output=True, text=True, timeout=3)
+        r = subprocess.run([which_cmd, "xray"], capture_output=True, text=True, timeout=3)
         if r.returncode == 0 and r.stdout.strip():
-            return r.stdout.strip()
+            return r.stdout.strip().splitlines()[0]
     except Exception:
         pass
     return None
@@ -240,7 +246,8 @@ def update_xray_core(callback: Optional[Callable] = None) -> Tuple[bool, str]:
     _cb("download", f"Скачивание v{latest}...")
 
     xray_bin = find_xray_binary() or "/usr/local/bin/xray"
-    tmp_dir  = "/tmp/xray-update"
+    # Кроссплатформенный temp dir вместо захардкоженного /tmp
+    tmp_dir  = os.path.join(tempfile.gettempdir(), "xray-update")
 
     try:
         if os.path.exists(tmp_dir):
@@ -307,6 +314,7 @@ def update_xray_core(callback: Optional[Callable] = None) -> Tuple[bool, str]:
         return True, msg
 
     except Exception as e:
+        log.exception("xray update failed")
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return False, f"Ошибка обновления: {e}"
 

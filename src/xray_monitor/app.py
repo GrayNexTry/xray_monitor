@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import glob
 import shutil
@@ -12,6 +13,8 @@ import socket
 import time
 from datetime import datetime
 from urllib.request import urlopen
+
+log = logging.getLogger(__name__)
 
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Static, TabbedContent, TabPane, Input, DataTable
@@ -142,7 +145,7 @@ class XrayMonitor(App):
         self.traffic_log = TrafficLog()
         self._last_d: dict | None = None
         self._tick_n  = 0
-        self._fetching = False   # предотвращает параллельные тики
+        self._fetch_lock = threading.Lock()  # атомарная защита от параллельных тиков
         self._ping_hosts: list    = ["1.1.1.1", "8.8.8.8", "google.com"]
         self._update_status       = ""
         self._bak_cache:   list   = []
@@ -243,6 +246,19 @@ class XrayMonitor(App):
             stored_sni = self.traffic_log.load_ip_sni()
             self.log_tail.load_sni_from_db(stored_sni)
         except Exception:
+            log.warning("failed to load IP data from DB", exc_info=True)
+
+    # ── Lifecycle ──────────────────────────────────────────────
+
+    def on_unmount(self) -> None:
+        """Корректное завершение: закрываем ресурсы."""
+        try:
+            self.traffic_log.close()
+        except Exception:
+            log.debug("traffic_log close error", exc_info=True)
+        try:
+            self.xray.disconnect()
+        except Exception:
             pass
 
     # ── Events ───────────────────────────────────────────────
@@ -307,9 +323,10 @@ class XrayMonitor(App):
         чтобы не замораживать UI.
         """
         if self.paused: return
-        if self._fetching: return   # пропускаем тик если предыдущий ещё не завершён
-        self._tick_n  += 1
-        self._fetching = True
+        # Атомарная проверка: Lock.acquire(blocking=False) — потокобезопасна
+        if not self._fetch_lock.acquire(blocking=False):
+            return  # предыдущий тик ещё выполняется
+        self._tick_n += 1
         threading.Thread(target=self._tick_worker, daemon=True).start()
 
     def _tick_worker(self) -> None:
@@ -333,10 +350,11 @@ class XrayMonitor(App):
                     self.traffic_log.save_ip_connections(self.log_tail.client_ips)
             self.call_from_thread(lambda: self._after_tick(d))
         except Exception as e:
+            log.exception("tick worker error")
             err_msg = str(e)
             self.call_from_thread(lambda: self._tick_error(err_msg))
         finally:
-            self._fetching = False
+            self._fetch_lock.release()
 
     def _after_tick(self, d: dict) -> None:
         """Вызывается из event loop через call_from_thread — обновляет UI."""
@@ -383,47 +401,42 @@ class XrayMonitor(App):
 
     # ── Draw-делегаторы ───────────────────────────────────────
 
+    def _safe_update(self, widget_cls: type, content) -> None:
+        """Обновляет виджет, логируя ошибки вместо проглатывания."""
+        try:
+            self.query_one(widget_cls).update(content)
+        except Exception:
+            log.debug("failed to update %s", widget_cls.__name__, exc_info=True)
+
     def _draw_overview(self, d: dict) -> None:
-        try: self.query_one(OvBox).update(render_overview(self, d))
-        except Exception: pass
+        self._safe_update(OvBox, render_overview(self, d))
 
     def _draw_sysmini(self, d: dict) -> None:
-        try: self.query_one(SysBox).update(render_sysmini(self, d))
-        except Exception: pass
+        self._safe_update(SysBox, render_sysmini(self, d))
 
     def _draw_traffic(self, d: dict) -> None:
-        try: self.query_one(TrafficW).update(render_traffic(self, d))
-        except Exception: pass
+        self._safe_update(TrafficW, render_traffic(self, d))
 
     def _draw_users(self, d: dict) -> None:
-        try: self.query_one(UsersW).update(render_users(self, d))
-        except Exception: pass
+        self._safe_update(UsersW, render_users(self, d))
 
     def _draw_system_tab(self) -> None:
         if not HAS_PSUTIL:
             hint = Text(f"\n  {L['psutil_hint']}\n", C["dim"])
             for w in (SysCpuRam, SysDisk, SysNet, SysProcs, SysPing):
-                try: self.query_one(w).update(hint)
-                except Exception: pass
+                self._safe_update(w, hint)
             return
-        try: self.query_one(SysCpuRam).update(render_cpu_ram(self))
-        except Exception: pass
-        try: self.query_one(SysDisk).update(render_disk(self))
-        except Exception: pass
-        try: self.query_one(SysNet).update(render_net(self))
-        except Exception: pass
-        try: self.query_one(SysProcs).update(render_procs(self))
-        except Exception: pass
-        try: self.query_one(SysPing).update(render_ping(self))
-        except Exception: pass
+        self._safe_update(SysCpuRam, render_cpu_ram(self))
+        self._safe_update(SysDisk, render_disk(self))
+        self._safe_update(SysNet, render_net(self))
+        self._safe_update(SysProcs, render_procs(self))
+        self._safe_update(SysPing, render_ping(self))
 
     def _draw_log(self) -> None:
-        try: self.query_one(LogW).update(render_log(self))
-        except Exception: pass
+        self._safe_update(LogW, render_log(self))
 
     def _draw_conn(self) -> None:
-        try: self.query_one(ConnW).update(render_connections(self))
-        except Exception: pass
+        self._safe_update(ConnW, render_connections(self))
 
     def _draw_ip_table(self) -> None:
         """Обновляет IP-радар: пересобирает таблицу и сортировочную строку."""
@@ -724,41 +737,38 @@ class XrayMonitor(App):
 
     # ── Tab actions ──────────────────────────────────────────
 
+    def _switch_tab(self, tab_id: str) -> None:
+        """Переключает вкладку, логируя ошибки."""
+        try:
+            self.query_one(TabbedContent).active = tab_id
+        except Exception:
+            log.debug("failed to switch to tab %s", tab_id, exc_info=True)
+
     def action_tab_dash(self) -> None:
-        try: self.query_one(TabbedContent).active = "tab-dash"
-        except Exception: pass
+        self._switch_tab("tab-dash")
 
     def action_tab_keys(self) -> None:
-        try:
-            self.query_one(TabbedContent).active = "tab-keys"
-            self._draw_keys_panel()
-        except Exception: pass
+        self._switch_tab("tab-keys")
+        self._draw_keys_panel()
 
     def action_tab_sys(self) -> None:
-        try: self.query_one(TabbedContent).active = "tab-sys"
-        except Exception: pass
+        self._switch_tab("tab-sys")
 
     def action_tab_log(self) -> None:
-        try: self.query_one(TabbedContent).active = "tab-log"
-        except Exception: pass
+        self._switch_tab("tab-log")
 
     def action_tab_conn(self) -> None:
-        try: self.query_one(TabbedContent).active = "tab-conn"
-        except Exception: pass
+        self._switch_tab("tab-conn")
 
     def action_tab_mgmt(self) -> None:
-        try:
-            self.query_one(TabbedContent).active = "tab-mgmt"
-            self._mgmt_last_update = 0
-            self._draw_mgmt_tab()
-        except Exception: pass
+        self._switch_tab("tab-mgmt")
+        self._mgmt_last_update = 0
+        self._draw_mgmt_tab()
 
     def action_tab_ip(self) -> None:
-        try:
-            self.query_one(TabbedContent).active = "tab-ip"
-            self._ip_db_cache_t = 0   # сбросить кэш, чтобы сразу загрузить
-            self._draw_ip_table()
-        except Exception: pass
+        self._switch_tab("tab-ip")
+        self._ip_db_cache_t = 0
+        self._draw_ip_table()
 
     # ── Сортировка IP-таблицы ────────────────────────────────
 
