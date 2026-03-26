@@ -50,6 +50,14 @@ MgmtW { height: auto; padding: 0 1; }
 #conn-scroll > .vertical-scrollbar  { width: 1; }
 #mgmt-scroll > .vertical-scrollbar  { width: 1; }
 
+/* IP Радар (вкладка 7) */
+#ip-radar-tab   { height: 1fr; padding: 0 1; }
+#ip-sort-bar    { height: 1; padding: 0 1; }
+IPSortBar       { height: 1; }
+IPTableW        { height: 3fr; border: tall $accent; }
+#ip-detail-scroll { height: 2fr; border: tall $primary; margin-top: 1; }
+IPDetailW       { height: auto; padding: 0 1; }
+
 /* QR-модальное окно */
 QRModal    { align: center middle; }
 #qr-box    { width: auto; height: auto; max-width: 80; max-height: 50;

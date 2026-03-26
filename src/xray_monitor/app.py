@@ -14,7 +14,7 @@ from datetime import datetime
 from urllib.request import urlopen
 
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Static, TabbedContent, TabPane, Input
+from textual.widgets import Header, Static, TabbedContent, TabPane, Input, DataTable
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.binding import Binding
@@ -40,6 +40,7 @@ from .widgets import (
     KeysLeft, KeysRight,
     SysCpuRam, SysDisk, SysNet, SysProcs, SysPing,
     LogW, ConnW, MgmtW, StatusBar, HintsBar, QRModal,
+    IPTableW, IPDetailW, IPSortBar,
 )
 from .panels.dashboard   import render_overview, render_sysmini, render_traffic, render_users
 from .panels.system      import render_cpu_ram, render_disk, render_net, render_procs, render_ping
@@ -47,6 +48,7 @@ from .panels.logs        import render_log
 from .panels.connections import render_connections
 from .panels.keys        import render_keys_left, render_keys_right
 from .panels.management  import start_management_update
+from .panels.ip_radar    import render_ip_detail, build_ip_table_rows
 
 
 def detect_public_ip() -> str:
@@ -89,19 +91,26 @@ class XrayMonitor(App):
         Binding("4", "tab_log",   "", show=False),
         Binding("5", "tab_conn",  "", show=False),
         Binding("6", "tab_mgmt",  "", show=False),
+        Binding("7", "tab_ip",    "", show=False),
         Binding("f",      "toggle_filter",  "", show=False),
         Binding("escape", "clear_filter",   "", show=False),
+        # Сортировка IP-таблицы (активна только на вкладке 7)
+        Binding("t", "ip_sort_time",   "", show=False),
+        Binding("n", "ip_sort_name",   "", show=False),
+        Binding("d", "ip_sort_dn",     "", show=False),
+        Binding("o", "ip_sort_status", "", show=False),
     ]
 
     # ── Подсказки по вкладкам ────────────────────────────────
     # Формат: "ключ описание  ключ описание  ..."  (разделитель — два пробела)
     _TAB_HINTS: dict = {
-        "tab-dash":  "q выход  r реконнект  s сортировка  z сброс  p пауза  Q QR  f фильтр  1-6 вкладки",
-        "tab-keys":  "q выход  e редактор  C проверка  B откат  Q QR  r реконнект  1-6 вкладки",
-        "tab-sys":   "q выход  r реконнект  p пауза  1-6 вкладки",
-        "tab-log":   "q выход  r реконнект  z сброс блокировок  1-6 вкладки",
-        "tab-conn":  "q выход  r реконнект  f фильтр  1-6 вкладки",
+        "tab-dash":  "q выход  r реконнект  s сортировка  z сброс  p пауза  Q QR  f фильтр  1-7 вкладки",
+        "tab-keys":  "q выход  e редактор  C проверка  B откат  Q QR  r реконнект  1-7 вкладки",
+        "tab-sys":   "q выход  r реконнект  p пауза  1-7 вкладки",
+        "tab-log":   "q выход  r реконнект  z сброс блокировок  1-7 вкладки",
+        "tab-conn":  "q выход  r реконнект  f фильтр  1-7 вкладки",
         "tab-mgmt":  "q выход  S старт  X стоп  R рестарт  H горячий-релоад  E авт.запуск  U обновить  e редактор  C проверка  B откат",
+        "tab-ip":    "↑↓ выбор IP  t время  n имя  d загрузка  o статус  q выход  r реконнект",
     }
 
     @staticmethod
@@ -148,6 +157,11 @@ class XrayMonitor(App):
         self._mgmt_update_interval: float = 2.0
         self._qr_url      = ""
         self._paused_at: float = 0
+        # IP Радар
+        self._ip_sort_col:   str   = "last_active"  # last_active|email|dn|up|status
+        self._ip_db_cache:   list  = []              # кэш query_all_ips()
+        self._ip_db_cache_t: float = 0
+        self._current_ip:    str   = ""              # выбранный IP в таблице
 
     # ── Compose ──────────────────────────────────────────────
 
@@ -198,6 +212,13 @@ class XrayMonitor(App):
             with TabPane(L["tab_mgmt"], id="tab-mgmt"):
                 with VerticalScroll(id="mgmt-scroll"):
                     yield MgmtW("...")
+            with TabPane("IP Радар", id="tab-ip"):
+                with Vertical(id="ip-radar-tab"):
+                    yield IPSortBar("", id="ip-sort-bar")
+                    yield IPTableW(id="ip-table")
+                    with VerticalScroll(id="ip-detail-scroll"):
+                        yield IPDetailW("  Выберите IP стрелками ↑↓",
+                                        id="ip-detail")
         yield StatusBar("...", id="status")
         yield HintsBar(self._render_hints(self._TAB_HINTS["tab-dash"]), id="hints")
 
@@ -242,6 +263,21 @@ class XrayMonitor(App):
         if event.input.id == "filter-input":
             event.input.blur()
 
+    def on_data_table_row_highlighted(
+        self, event: DataTable.RowHighlighted
+    ) -> None:
+        """Обновляет детальную панель при перемещении курсора в IP-таблице."""
+        if event.row_key is None:
+            return
+        ip = str(event.row_key.value) if event.row_key.value else ""
+        if not ip:
+            return
+        self._current_ip = ip
+        try:
+            self.query_one(IPDetailW).update(render_ip_detail(self, ip))
+        except Exception:
+            pass
+
     def on_tabbed_content_tab_activated(
         self, event: TabbedContent.TabActivated
     ) -> None:
@@ -261,6 +297,10 @@ class XrayMonitor(App):
             )
         except Exception:
             pass
+        # IP Радар: сразу обновить таблицу при переключении на вкладку
+        if tab_id == "tab-ip":
+            self._ip_db_cache_t = 0
+            self._draw_ip_table()
 
     # ── Tick / Draw ──────────────────────────────────────────
 
@@ -294,6 +334,8 @@ class XrayMonitor(App):
                     self.traffic_log.save_ip_bytes(
                         self.xray.ip_bytes, self.xray.ip_email
                     )
+                if self.log_tail.client_ips:
+                    self.traffic_log.save_ip_connections(self.log_tail.client_ips)
             self.call_from_thread(lambda: self._after_tick(d))
         except Exception as e:
             err_msg = str(e)
@@ -341,6 +383,7 @@ class XrayMonitor(App):
         self._draw_users(d)
         self._draw_log()
         self._draw_conn()
+        self._draw_ip_table()
         self._draw_system_tab()
 
     # ── Draw-делегаторы ───────────────────────────────────────
@@ -386,6 +429,48 @@ class XrayMonitor(App):
     def _draw_conn(self) -> None:
         try: self.query_one(ConnW).update(render_connections(self))
         except Exception: pass
+
+    def _draw_ip_table(self) -> None:
+        """Обновляет IP-радар: пересобирает таблицу и сортировочную строку."""
+        try:
+            if self.query_one(TabbedContent).active != "tab-ip":
+                return
+        except Exception:
+            return
+
+        # Обновляем кэш БД каждые 15 с
+        now = time.time()
+        if now - self._ip_db_cache_t > 15:
+            try:
+                self._ip_db_cache   = self.traffic_log.query_all_ips()
+                self._ip_db_cache_t = now
+            except Exception:
+                pass
+
+        try:
+            rows = build_ip_table_rows(self)
+            self.query_one(IPTableW).rebuild(rows, keep_key=self._current_ip)
+        except Exception:
+            pass
+
+        # Сортировочная строка
+        _SORT_LABELS = {
+            "last_active": "t время",
+            "email":       "n имя",
+            "dn":          "d загрузка",
+            "up":          "u отдача",
+            "status":      "o статус",
+        }
+        try:
+            label = _SORT_LABELS.get(self._ip_sort_col, self._ip_sort_col)
+            total = len(self._ip_db_cache)
+            hint  = Text()
+            hint.append(f"  Сортировка: [{label}]  ", C["accent3"])
+            hint.append("t время  n имя  d загрузка  o статус  ", C["dim"])
+            hint.append(f"всего: {total} IP", C["dim"])
+            self.query_one(IPSortBar).update(hint)
+        except Exception:
+            pass
 
     def _draw_keys_panel(self) -> None:
         try: self.query_one(KeysLeft).update(render_keys_left(self))
@@ -672,3 +757,23 @@ class XrayMonitor(App):
             self._mgmt_last_update = 0
             self._draw_mgmt_tab()
         except Exception: pass
+
+    def action_tab_ip(self) -> None:
+        try:
+            self.query_one(TabbedContent).active = "tab-ip"
+            self._ip_db_cache_t = 0   # сбросить кэш, чтобы сразу загрузить
+            self._draw_ip_table()
+        except Exception: pass
+
+    # ── Сортировка IP-таблицы ────────────────────────────────
+
+    def _ip_sort(self, col: str) -> None:
+        if self.query_one(TabbedContent).active != "tab-ip":
+            return
+        self._ip_sort_col = col
+        self._draw_ip_table()
+
+    def action_ip_sort_time(self)   -> None: self._ip_sort("last_active")
+    def action_ip_sort_name(self)   -> None: self._ip_sort("email")
+    def action_ip_sort_dn(self)     -> None: self._ip_sort("dn")
+    def action_ip_sort_status(self) -> None: self._ip_sort("status")

@@ -11,6 +11,7 @@ INSTALL_DIR="/opt/xray-monitor"
 VENV_DIR="$INSTALL_DIR/venv"
 BIN_LINK="/usr/local/bin/$APP_NAME"
 SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
+COLLECTOR_SERVICE_FILE="/etc/systemd/system/xray-log-collector.service"
 REQUIRED_PY_VERSION="3.9"
 VERSION_FILE="$INSTALL_DIR/.version"
 PIP_LOG="/tmp/xray-monitor-install.log"
@@ -69,12 +70,15 @@ fi
 
 if [[ "${1:-}" == "--uninstall" ]]; then
     header "Удаление $APP_NAME"
-    spinner_start "Останавливаем сервис..."
+    spinner_start "Останавливаем сервисы..."
     systemctl stop "$APP_NAME" 2>/dev/null || true
     systemctl disable "$APP_NAME" 2>/dev/null || true
+    systemctl stop "xray-log-collector" 2>/dev/null || true
+    systemctl disable "xray-log-collector" 2>/dev/null || true
     spinner_stop
     spinner_start "Удаляем файлы..."
     rm -f "$SERVICE_FILE"
+    rm -f "$COLLECTOR_SERVICE_FILE"
     rm -f "$BIN_LINK"
     rm -rf "$INSTALL_DIR"
     systemctl daemon-reload 2>/dev/null || true
@@ -163,6 +167,11 @@ if [[ -d "$SCRIPT_DIR/src/xray_monitor" ]]; then
     cp -f "$SCRIPT_DIR/pyproject.toml" "$INSTALL_DIR/"
     cp -f "$SCRIPT_DIR/install.sh" "$INSTALL_DIR/install.sh"
     chmod +x "$INSTALL_DIR/install.sh"
+    # Копируем скрипты (сборщик логов и т.д.)
+    if [[ -d "$SCRIPT_DIR/scripts" ]]; then
+        cp -r "$SCRIPT_DIR/scripts" "$INSTALL_DIR/"
+        chmod +x "$INSTALL_DIR/scripts/"*.py 2>/dev/null || true
+    fi
     spinner_stop "Исходники скопированы"
 else
     error "Исходники не найдены. Запустите install.sh из директории проекта."
@@ -334,6 +343,44 @@ else
     info "Systemd-сервис уже существует, пропускаем..."
 fi
 
+# ── Сервис фонового сборщика (xray-log-collector) ───────────
+
+COLLECTOR_SCRIPT="$INSTALL_DIR/scripts/xray_log_collector.py"
+
+if [[ -f "$COLLECTOR_SCRIPT" ]]; then
+    if ! $IS_UPDATE || [[ ! -f "$COLLECTOR_SERVICE_FILE" ]]; then
+        info "Создаём systemd-сервис xray-log-collector..."
+        cat > "$COLLECTOR_SERVICE_FILE" << UNIT
+[Unit]
+Description=Xray Log Collector (SNI + IP data for xray-monitor)
+After=network.target xray.service
+PartOf=xray.service
+
+[Service]
+Type=simple
+ExecStart=$VENV_DIR/bin/python $COLLECTOR_SCRIPT
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+        systemctl daemon-reload
+        systemctl enable xray-log-collector 2>/dev/null || true
+        systemctl start  xray-log-collector 2>/dev/null || true
+        info "xray-log-collector запущен и добавлен в автозапуск"
+    else
+        # При обновлении просто перезапускаем
+        systemctl daemon-reload
+        systemctl restart xray-log-collector 2>/dev/null || true
+        info "xray-log-collector перезапущен"
+    fi
+else
+    warn "Скрипт сборщика не найден ($COLLECTOR_SCRIPT) — сервис не создан"
+fi
+
 # ── Проверяем установку ──────────────────────────────────────
 
 spinner_start "Проверяем установку..."
@@ -364,7 +411,8 @@ echo " Клавиши:"
 echo "   q=выход  r=реконнект  s=сортировка  z=сброс  p=пауза"
 echo "   Q=QR     e=редактор   R=рестарт     H=горячий-релоад"
 echo "   S=старт  X=стоп       U=обновить    E=автозапуск вкл/выкл"
-echo "   C=проверка  B=откат   1-6=вкладки   f=фильтр"
+echo "   C=проверка  B=откат   1-7=вкладки   f=фильтр"
+echo "   7=IP Радар  ↑↓=выбрать IP  t/n/d/o=сортировка"
 echo ""
 if $IS_UPDATE; then
     echo " Обновление:"
@@ -382,6 +430,13 @@ if [[ -f "$CITY_DB" ]]; then
 else
     echo " Геолокация: ip-api.com (онлайн)"
     echo "   Переключить на MaxMind: sudo bash install.sh --update"
+fi
+echo ""
+if systemctl is-active --quiet xray-log-collector 2>/dev/null; then
+    echo " Сборщик логов: xray-log-collector — запущен (SNI + IP данные)"
+else
+    echo " Сборщик логов: xray-log-collector — не запущен"
+    echo "   Запустить:  systemctl start xray-log-collector"
 fi
 echo ""
 echo " Удаление:"

@@ -49,11 +49,13 @@ CREATE TABLE IF NOT EXISTS meta (
 
 -- SNI Radar: накопленный трафик по IP-адресам клиентов
 CREATE TABLE IF NOT EXISTS ip_traffic (
-    ip      TEXT    NOT NULL PRIMARY KEY,
-    email   TEXT    NOT NULL DEFAULT '',
-    up      INTEGER NOT NULL DEFAULT 0,
-    dn      INTEGER NOT NULL DEFAULT 0,
-    updated INTEGER NOT NULL DEFAULT 0
+    ip          TEXT    NOT NULL PRIMARY KEY,
+    email       TEXT    NOT NULL DEFAULT '',
+    up          INTEGER NOT NULL DEFAULT 0,
+    dn          INTEGER NOT NULL DEFAULT 0,
+    updated     INTEGER NOT NULL DEFAULT 0,
+    first_seen  INTEGER NOT NULL DEFAULT 0,
+    last_active INTEGER NOT NULL DEFAULT 0
 );
 
 -- SNI Radar: домены/сервисы которые посещал каждый IP
@@ -91,7 +93,29 @@ class TrafficLog:
         conn = sqlite3.connect(self.path, check_same_thread=False, timeout=10)
         conn.executescript(_SCHEMA)
         conn.commit()
+        self._migrate_schema(conn)
         return conn
+
+    @staticmethod
+    def _migrate_schema(conn: sqlite3.Connection) -> None:
+        """Добавляет новые колонки к существующим таблицам (безопасная миграция)."""
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(ip_traffic)").fetchall()}
+        migrations = []
+        if "first_seen" not in cols:
+            migrations.append(
+                "ALTER TABLE ip_traffic ADD COLUMN first_seen INTEGER NOT NULL DEFAULT 0"
+            )
+        if "last_active" not in cols:
+            migrations.append(
+                "ALTER TABLE ip_traffic ADD COLUMN last_active INTEGER NOT NULL DEFAULT 0"
+            )
+        for sql in migrations:
+            try:
+                conn.execute(sql)
+            except Exception:
+                pass
+        if migrations:
+            conn.commit()
 
     def _load_today(self) -> None:
         try:
@@ -393,3 +417,69 @@ class TrafficLog:
                 result[ip] = deque(maxlen=50)
             result[ip].appendleft((domain, tag, hits, last_seen))
         return result
+
+    def save_ip_connections(self, connections: dict) -> None:
+        """Сохраняет временны́е метки подключений IP из лога.
+
+        connections: {email: {ip: last_seen_ts}}
+        Устанавливает first_seen только если ещё не задан (= 0).
+        Обновляет last_active если новее.
+        """
+        import time as _t
+        now = int(_t.time())
+        rows = []
+        for email, ips in connections.items():
+            for ip, last_ts in ips.items():
+                rows.append((ip, email, int(last_ts), int(last_ts), now))
+        if not rows:
+            return
+        with _LOCK:
+            with self._conn:
+                self._conn.executemany(
+                    "INSERT INTO ip_traffic(ip, email, first_seen, last_active, updated)"
+                    " VALUES(?,?,?,?,?)"
+                    " ON CONFLICT(ip) DO UPDATE SET"
+                    "   email=excluded.email,"
+                    "   first_seen=CASE WHEN first_seen=0 THEN excluded.first_seen"
+                    "              ELSE first_seen END,"
+                    "   last_active=MAX(last_active, excluded.last_active),"
+                    "   updated=excluded.updated",
+                    rows,
+                )
+
+    def query_all_ips(self) -> list:
+        """Возвращает все IP-записи для таблицы IP-радара.
+
+        Результат: [{ip, email, up, dn, first_seen, last_active}, ...]
+        Сортировка: last_active DESC.
+        """
+        with _LOCK:
+            rows = self._conn.execute(
+                "SELECT ip, email, up, dn, first_seen, last_active"
+                " FROM ip_traffic"
+                " ORDER BY last_active DESC"
+            ).fetchall()
+        return [
+            {
+                "ip":          r[0],
+                "email":       r[1],
+                "up":          r[2],
+                "dn":          r[3],
+                "first_seen":  r[4],
+                "last_active": r[5],
+            }
+            for r in rows
+        ]
+
+    def query_ip_sni(self, ip: str) -> list:
+        """SNI-домены для одного IP из БД.
+
+        Результат: [(domain, tag, hits, last_seen), ...] по убыванию hits.
+        """
+        with _LOCK:
+            rows = self._conn.execute(
+                "SELECT domain, tag, hits, last_seen FROM ip_sni"
+                " WHERE ip=? ORDER BY hits DESC LIMIT 30",
+                (ip,),
+            ).fetchall()
+        return list(rows)

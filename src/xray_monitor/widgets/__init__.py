@@ -6,6 +6,7 @@ from .components import (
     KeysLeft, KeysRight,
     SysCpuRam, SysDisk, SysNet, SysProcs, SysPing,
     LogW, ConnW, MgmtW, StatusBar, HintsBar,
+    IPTableW, IPDetailW, IPSortBar,
 )
 from .qr_modal import QRModal
 
@@ -15,5 +16,6 @@ __all__ = [
     "KeysLeft", "KeysRight",
     "SysCpuRam", "SysDisk", "SysNet", "SysProcs", "SysPing",
     "LogW", "ConnW", "MgmtW", "StatusBar", "HintsBar",
+    "IPTableW", "IPDetailW", "IPSortBar",
     "QRModal",
 ]
