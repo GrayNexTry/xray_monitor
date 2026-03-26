@@ -184,9 +184,6 @@ class XrayMonitor(App):
             with TabPane(L["tab_connections"], id="tab-conn"):
                 with VerticalScroll(id="conn-scroll"):
                     yield ConnW("...")
-            with TabPane(L["tab_mgmt"], id="tab-mgmt"):
-                with VerticalScroll(id="mgmt-scroll"):
-                    yield MgmtW("...")
             with TabPane("IP Радар", id="tab-ip"):
                 with Vertical(id="ip-radar-tab"):
                     yield IPSortBar("", id="ip-sort-bar")
@@ -194,6 +191,10 @@ class XrayMonitor(App):
                     with VerticalScroll(id="ip-detail-scroll"):
                         yield IPDetailW("  Выберите IP стрелками ↑↓",
                                         id="ip-detail")
+            with TabPane(L["tab_mgmt"], id="tab-mgmt"):
+                with VerticalScroll(id="mgmt-scroll"):
+                    yield MgmtW("...")
+                    
         yield StatusBar("...", id="status")
         yield Footer()
 
