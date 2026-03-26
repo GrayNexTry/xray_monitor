@@ -111,7 +111,7 @@ class XrayMonitor(App):
         Binding("n",      "ip_sort_name",   "↕ Имя",      show=True),
         Binding("d",      "ip_sort_dn",     "↕ Загрузка", show=True),
         Binding("o",      "ip_sort_status", "↕ Статус",   show=True),
-        Binding("delete", "delete_ip_user", "Удалить",     show=True),
+        Binding("delete", "delete_ip_user", "Удалить",      show=True),
         # ── Вкладки 1–7 (скрытые) ───────────────────────────
         Binding("1", "tab_dash",  "", show=False),
         Binding("2", "tab_keys",  "", show=False),
