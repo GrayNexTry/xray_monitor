@@ -1,6 +1,5 @@
 """Виджеты TUI (Static-подклассы + DataTable для IP Радара)."""
 
-from textual.binding import Binding
 from textual.widgets import Static, DataTable
 
 
@@ -32,7 +31,12 @@ class IPTableW(DataTable):
              загружено, отдано, топ-сервис, страна.
     """
 
-    BINDINGS = [Binding("delete", "app.delete_ip_user", "Удалить", show=False)]
+    def on_key(self, event) -> None:
+        if event.key == "delete":
+            event.stop()
+            action = getattr(self.app, "action_delete_ip_user", None)
+            if action:
+                action()
 
     def on_mount(self) -> None:
         self.cursor_type  = "row"
