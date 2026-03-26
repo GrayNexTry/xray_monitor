@@ -13,7 +13,7 @@ TabPane       { height: 1fr; padding: 0; }
 #dash-right{ width: 1fr; height: 1fr; margin-left: 1; }
 #top-row   { height: auto; max-height: 18; }
 #ov-box    { height: 1fr; border: round $panel; padding: 0 1; width: 1fr; }
-#sys-box   { width: 36; border: round $panel; padding: 0 1; }
+#sys-box   { height: 1fr; width: 36; border: round $panel; padding: 0 1; }
 TrafficW   { height: 1fr; border: round $panel; padding: 0 1; overflow-y: auto; }
 UsersW     { height: 1fr; border: round $panel; padding: 0 1; overflow-y: auto; }
 #filter-bar   { height: 3; padding: 0 1; display: none; }
