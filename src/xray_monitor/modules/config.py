@@ -262,7 +262,7 @@ class XrayConfig:
     def delete_client(self, email: str) -> tuple[bool, str]:
         """Удаляет клиента по email из всех inbound-ов. Создаёт бэкап."""
         import shutil
-        import time as _t
+        from datetime import datetime as _dt
         try:
             data = self.reload()
             if "error" in data:
@@ -287,7 +287,9 @@ class XrayConfig:
             if not found:
                 return False, f"Пользователь '{email}' не найден в конфиге"
 
-            bak = self.path + f".bak.{int(_t.time())}"
+            # Формат бэкапа .bak_YYYYMMDD_HHMMSS — совпадает с app._backup_config()
+            ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+            bak = self.path + f".bak_{ts}"
             shutil.copy2(self.path, bak)
 
             with open(self.path, "w") as f:
@@ -299,13 +301,13 @@ class XrayConfig:
             return False, str(e)
 
     def check_syntax(self) -> tuple:
-        for xray_bin in ["/usr/local/bin/xray", "/usr/bin/xray", "xray"]:
-            try:
-                r = subprocess.run([xray_bin, "run", "-test", "-config", self.path],
-                                   capture_output=True, text=True, timeout=10)
-                return r.returncode == 0, (r.stdout + r.stderr).strip()
-            except FileNotFoundError:
-                continue
-            except Exception as e:
-                return None, str(e)
-        return None, "xray binary not found"
+        from .xray_manager import find_xray_binary
+        xray_bin = find_xray_binary()
+        if not xray_bin:
+            return None, "xray binary not found"
+        try:
+            r = subprocess.run([xray_bin, "run", "-test", "-c", self.path],
+                               capture_output=True, text=True, timeout=10)
+            return r.returncode == 0, (r.stdout + r.stderr).strip()
+        except Exception as e:
+            return None, str(e)

@@ -603,17 +603,18 @@ class XrayMonitor(App):
         self.push_screen(QRModal(url, L["vless_url"]))
 
     def action_reload_xray(self) -> None:
-        """H — горячая перезагрузка конфига xray без обрыва сессий (SIGHUP)."""
+        """H — перезагрузка конфига xray (restart, т.к. hot reload не поддерживается)."""
         def _do() -> None:
             ok, msg = reload_xray()
-            self.call_from_thread(lambda: self.notify(
-                msg,
-                severity="information" if ok else "error",
-            ))
             if ok:
-                time.sleep(1)
+                self.call_from_thread(lambda: self.notify(
+                    "Конфиг применён (restart)", severity="warning"))
+                time.sleep(2)
                 self.call_from_thread(self.action_reconnect)
-        self.notify("Горячая перезагрузка xray...", severity="warning")
+            else:
+                self.call_from_thread(lambda: self.notify(
+                    msg, severity="error"))
+        self.notify("Перезагрузка конфига xray...", severity="warning")
         threading.Thread(target=_do, daemon=True).start()
 
     def action_restart_xray(self) -> None:
@@ -715,6 +716,8 @@ class XrayMonitor(App):
         if not bak:
             self.notify(L["no_backups_found"], severity="warning"); return
         try:
+            # Сохраняем текущий (возможно сломанный) конфиг перед откатом
+            self._backup_config()
             shutil.copy2(bak, self.cfg.path)
             self.cfg._mtime = 0
             self._draw_keys_panel()

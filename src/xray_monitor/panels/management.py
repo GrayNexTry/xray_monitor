@@ -129,7 +129,7 @@ def build_hotkeys_text() -> Text:
         ("S", L["hotkey_start_xray"],       L["xray_started"]),
         ("X", L["hotkey_stop_xray"],         L["xray_stopped"]),
         ("R", L["hotkey_restart_xray"],      L["xray_restarted"]),
-        ("H", "Горячий релоад конфига",      "SIGHUP — сессии не прерываются"),
+        ("H", "Перезагрузка конфига",         "restart — применить новый конфиг"),
         ("U", L["hotkey_update_xray"],       L["xray_update_done"]),
         ("E", L["hotkey_toggle_autostart"],  L["xray_enabled"] + "/" + L["xray_disabled"]),
         ("C", L["hotkey_check_config"],      L["config_ok"]),
