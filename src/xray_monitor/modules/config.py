@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import json
 import subprocess
+import tempfile
 
 from .crypto import derive_public_key
 
@@ -292,8 +293,23 @@ class XrayConfig:
             bak = self.path + f".bak_{ts}"
             shutil.copy2(self.path, bak)
 
-            with open(self.path, "w") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            # Атомарная запись: temp file → fsync → os.replace
+            dir_name = os.path.dirname(self.path) or "."
+            fd = tempfile.NamedTemporaryFile(
+                "w", dir=dir_name, suffix=".tmp", delete=False)
+            try:
+                json.dump(data, fd, ensure_ascii=False, indent=2)
+                fd.flush()
+                os.fsync(fd.fileno())
+                fd.close()
+                os.replace(fd.name, self.path)
+            except BaseException:
+                fd.close()
+                try:
+                    os.unlink(fd.name)
+                except OSError:
+                    pass
+                raise
             self._mtime = 0  # сброс кэша
 
             return True, f"Удалён '{email}'. Бэкап: {bak}"
@@ -301,12 +317,16 @@ class XrayConfig:
             return False, str(e)
 
     def check_syntax(self) -> tuple:
+        return self.check_syntax_file(self.path)
+
+    def check_syntax_file(self, path: str) -> tuple:
+        """Проверяет синтаксис произвольного конфиг-файла через xray -test."""
         from .xray_manager import find_xray_binary
         xray_bin = find_xray_binary()
         if not xray_bin:
             return None, "xray binary not found"
         try:
-            r = subprocess.run([xray_bin, "run", "-test", "-c", self.path],
+            r = subprocess.run([xray_bin, "run", "-test", "-c", path],
                                capture_output=True, text=True, timeout=10)
             return r.returncode == 0, (r.stdout + r.stderr).strip()
         except Exception as e:
