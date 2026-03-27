@@ -1,7 +1,14 @@
-"""Системная статистика (CPU, RAM, диск, сеть, процессы) через psutil."""
+"""Системная статистика (CPU, RAM, диск, сеть, процессы) через psutil.
+
+Оптимизации для серверного окружения:
+- Тяжёлые вызовы (process_iter, net_connections) кэшируются с TTL
+- Единственный фоновый поток вместо создания нового каждые 3 секунды
+- Минимальное потребление CPU в idle
+"""
 
 from __future__ import annotations
 
+import heapq
 import os
 import socket
 import threading
@@ -27,6 +34,8 @@ class SysStats:
         self._xray_pid:         Optional[int] = None
         self._xray_pid_check_t: float         = 0
         self._tcp_cache: tuple = (0, 0, 0.0)   # (est, listen, timestamp)
+        self._procs_cache: tuple = ([], 0.0)    # (top_procs, timestamp)
+        self._procs_cache_ttl: float = 10.0     # обновлять список процессов раз в 10 сек
 
     def _find_xray_pid(self) -> Optional[int]:
         """Находит PID xray — кэш 30 секунд."""
@@ -87,9 +96,9 @@ class SysStats:
             self._net_prev = net
             self._net_t    = now
 
-            # TCP-соединения — кэш 10 секунд (дорогой вызов)
+            # TCP-соединения — кэш 15 секунд (дорогой вызов: парсит /proc/net/tcp)
             est, listen, tcp_ts = self._tcp_cache
-            if now - tcp_ts > 10:
+            if now - tcp_ts > 15:
                 try:
                     conns  = psutil.net_connections(kind="tcp")
                     est    = sum(1 for c in conns if c.status == "ESTABLISHED")
@@ -118,25 +127,29 @@ class SysStats:
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     self._xray_pid = None
 
-            import heapq
-            top_n = 12
-            procs: list = []
-            for proc in psutil.process_iter(["pid", "name", "cpu_percent", "memory_info"]):
-                try:
-                    mi    = proc.info["memory_info"]
-                    mem   = mi.rss if mi else 0
-                    cpu_p = proc.info["cpu_percent"] or 0.0
-                    entry = (mem, proc.info["pid"], proc.info["name"] or "?", cpu_p)
-                    if len(procs) < top_n:
-                        heapq.heappush(procs, entry)
-                    elif mem > procs[0][0]:
-                        heapq.heapreplace(procs, entry)
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-            d["top_procs"] = sorted(
-                [(pid, name, cpu_p, mem) for mem, pid, name, cpu_p in procs],
-                key=lambda x: x[3], reverse=True,
-            )
+            # Список процессов — кэш (дорогой вызов process_iter)
+            cached_procs, procs_ts = self._procs_cache
+            if now - procs_ts > self._procs_cache_ttl:
+                top_n = 12
+                procs: list = []
+                for proc in psutil.process_iter(["pid", "name", "cpu_percent", "memory_info"]):
+                    try:
+                        mi    = proc.info["memory_info"]
+                        mem   = mi.rss if mi else 0
+                        cpu_p = proc.info["cpu_percent"] or 0.0
+                        entry = (mem, proc.info["pid"], proc.info["name"] or "?", cpu_p)
+                        if len(procs) < top_n:
+                            heapq.heappush(procs, entry)
+                        elif mem > procs[0][0]:
+                            heapq.heapreplace(procs, entry)
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+                cached_procs = sorted(
+                    [(pid, name, cpu_p, mem) for mem, pid, name, cpu_p in procs],
+                    key=lambda x: x[3], reverse=True,
+                )
+                self._procs_cache = (cached_procs, now)
+            d["top_procs"] = cached_procs
         except Exception as e:
             d["error"] = str(e)
 
