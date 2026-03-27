@@ -99,7 +99,7 @@ class LogTail:
                 self._last_size = sz
                 is_first_scan = (self._last_pos == 0)
                 if is_first_scan:
-                    f.seek(max(0, sz - 10 * 1024 * 1024))
+                    f.seek(max(0, sz - 2 * 1024 * 1024))  # 2 МБ — достаточно для начала
                 else:
                     f.seek(self._last_pos)
                 chunk = f.read().decode("utf-8", errors="replace")

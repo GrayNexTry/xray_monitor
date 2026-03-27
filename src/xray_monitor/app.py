@@ -227,9 +227,14 @@ class XrayMonitor(App):
         self.sub_title = L["title"]
         self.xray.connect()
         if HAS_PSUTIL:
-            self.set_interval(3.0, lambda: threading.Thread(
-                target=self.sys_s.collect, daemon=True).start())
-            threading.Thread(target=self.sys_s.collect, daemon=True).start()
+            # Один фоновый поток для сбора системной статистики
+            # вместо создания нового потока каждые 3 секунды
+            self._sys_collector_stop = threading.Event()
+            def _sys_collector_loop():
+                while not self._sys_collector_stop.is_set():
+                    self.sys_s.collect()
+                    self._sys_collector_stop.wait(3.0)
+            threading.Thread(target=_sys_collector_loop, daemon=True).start()
         self.set_interval(self.interval, self._tick)
         self.call_later(self._tick)
         for h in self._ping_hosts:
@@ -249,6 +254,9 @@ class XrayMonitor(App):
 
     def on_unmount(self) -> None:
         """Корректное завершение: закрываем ресурсы."""
+        # Останавливаем фоновый сборщик системной статистики
+        if hasattr(self, '_sys_collector_stop'):
+            self._sys_collector_stop.set()
         try:
             self.ip_registry.flush_to_db()
         except Exception:
@@ -332,7 +340,8 @@ class XrayMonitor(App):
     def _tick_worker(self) -> None:
         """Фоновый поток: gRPC-вызовы + обновление SQLite."""
         try:
-            threading.Thread(target=self.log_tail.update_block_stats, daemon=True).start()
+            # Обновляем блок-статистику в этом же потоке (не спавним новый)
+            self.log_tail.update_block_stats()
             log_snap = {em: dict(ips) for em, ips in self.log_tail.client_ips.items()}
             d = self.xray.fetch(log_ips=log_snap,
                                 ip_registry=self.ip_registry)
