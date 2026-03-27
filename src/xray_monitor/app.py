@@ -148,7 +148,7 @@ class XrayMonitor(App):
         self._last_d: dict | None = None
         self._tick_n  = 0
         self._fetch_lock = threading.Lock()  # атомарная защита от параллельных тиков
-        self._ping_hosts: list    = ["1.1.1.1", "8.8.8.8", "google.com"]
+        self._ping_hosts: list    = ["1.1.1.1", "8.8.8.8", "9.9.9.9"]
         self._update_status       = ""
         self._bak_cache:   list   = []
         self._bak_cache_t: float  = 0
