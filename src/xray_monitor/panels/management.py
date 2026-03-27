@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import subprocess
-import threading
 from typing import Callable, TYPE_CHECKING
 
 from rich.text import Text
@@ -165,9 +164,9 @@ def build_hotkeys_text() -> Text:
 
 def start_management_update(app: "XrayMonitor",
                              on_ready: Callable[[Text], None]) -> None:
-    """Запускает сборку панели управления в фоновом потоке."""
+    """Запускает сборку панели управления через пул потоков приложения."""
     def _run() -> None:
         t = build_management_text(app)
         app.call_from_thread(lambda: on_ready(t))
 
-    threading.Thread(target=_run, daemon=True).start()
+    app._pool.submit(_run)
