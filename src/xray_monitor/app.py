@@ -11,6 +11,7 @@ import threading
 import ipaddress
 import socket
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from urllib.request import urlopen
 
@@ -152,6 +153,9 @@ class XrayMonitor(App):
         self._ping_hosts: list    = ["1.1.1.1", "8.8.8.8", "google.com"]
         self._update_status       = ""
         self._critical_threads: list[threading.Thread] = []  # потоки, которые нельзя убивать
+        # Фиксированный пул потоков — предотвращает утечку VIRT-памяти
+        # (каждый threading.Thread выделяет ~8 МБ стека)
+        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="xm")
         self._bak_cache:   list   = []
         self._bak_cache_t: float  = 0
         self._mgmt_last_update:   float = 0
@@ -246,7 +250,7 @@ class XrayMonitor(App):
             self.sys_s.ping(h)
         self.call_later(self._init_keys_from_config)
         # Загружаем накопленные IP-данные из БД (SNI + байты)
-        threading.Thread(target=self._load_ip_data_from_db, daemon=True).start()
+        self._pool.submit(self._load_ip_data_from_db)
 
     def _load_ip_data_from_db(self) -> None:
         """Загружает IP-данные из SQLite в IPRegistry (фоновый поток)."""
@@ -280,6 +284,11 @@ class XrayMonitor(App):
             log.debug("traffic_log close error", exc_info=True)
         try:
             self.xray.disconnect()
+        except Exception:
+            pass
+        # Завершаем пул потоков
+        try:
+            self._pool.shutdown(wait=False)
         except Exception:
             pass
 
@@ -348,7 +357,7 @@ class XrayMonitor(App):
         if not self._fetch_lock.acquire(blocking=False):
             return  # предыдущий тик ещё выполняется
         self._tick_n += 1
-        threading.Thread(target=self._tick_worker, daemon=True).start()
+        self._pool.submit(self._tick_worker)
 
     def _tick_worker(self) -> None:
         """Фоновый поток: gRPC-вызовы + обновление SQLite."""
@@ -559,7 +568,7 @@ class XrayMonitor(App):
             except Exception:
                 pass
             self.call_from_thread(self._draw_keys_panel)
-        threading.Thread(target=_detect, daemon=True).start()
+        self._pool.submit(_detect)
 
     # ── Actions ──────────────────────────────────────────────
 
@@ -629,7 +638,7 @@ class XrayMonitor(App):
                 self.call_from_thread(lambda: self.notify(
                     msg, severity="error"))
         self.notify("Перезагрузка конфига xray...", severity="warning")
-        threading.Thread(target=_do, daemon=True).start()
+        self._pool.submit(_do)
 
     def action_restart_xray(self) -> None:
         def _do() -> None:
@@ -645,7 +654,7 @@ class XrayMonitor(App):
                 self.call_from_thread(lambda: self.notify(
                     f"{L['xray_restart_fail']}: {msg}{hint}", severity="error"))
         self.notify("Перезапуск xray...", severity="warning")
-        threading.Thread(target=_do, daemon=True).start()
+        self._pool.submit(_do)
 
     def action_start_xray(self) -> None:
         def _do() -> None:
@@ -659,7 +668,7 @@ class XrayMonitor(App):
                 self.call_from_thread(lambda: self.notify(
                     f"{L['xray_start_fail']}: {msg}", severity="error"))
         self.notify("Запуск xray...", severity="warning")
-        threading.Thread(target=_do, daemon=True).start()
+        self._pool.submit(_do)
 
     def action_stop_xray(self) -> None:
         def _do() -> None:
@@ -672,7 +681,7 @@ class XrayMonitor(App):
                 self.call_from_thread(lambda: self.notify(
                     f"{L['xray_stop_fail']}: {msg}", severity="error"))
         self.notify("Остановка xray...", severity="warning")
-        threading.Thread(target=_do, daemon=True).start()
+        self._pool.submit(_do)
 
     def action_toggle_enable_xray(self) -> None:
         def _do() -> None:
@@ -687,7 +696,7 @@ class XrayMonitor(App):
                 self.call_from_thread(lambda: self.notify(
                     L["xray_enabled"] if ok else msg,
                     severity="information" if ok else "error"))
-        threading.Thread(target=_do, daemon=True).start()
+        self._pool.submit(_do)
 
     def action_update_xray(self) -> None:
         self._update_status = L["xray_update_checking"]
@@ -763,7 +772,7 @@ class XrayMonitor(App):
                 msg   = next((line for line in lines if "error" in line.lower()), out[:120])
                 self.call_from_thread(lambda: self.notify(
                     L["error_msg"].format(msg=msg), severity="error"))
-        threading.Thread(target=_do, daemon=True).start()
+        self._pool.submit(_do)
 
     # ── Tab actions ──────────────────────────────────────────
 
