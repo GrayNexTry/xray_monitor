@@ -147,9 +147,11 @@ class XrayMonitor(App):
         self.ip_registry = IPRegistry(self.traffic_log)
         self._last_d: dict | None = None
         self._tick_n  = 0
-        self._fetch_lock = threading.Lock()  # атомарная защита от параллельных тиков
-        self._ping_hosts: list    = ["1.1.1.1", "8.8.8.8", "9.9.9.9"]
+        self._fetch_lock  = threading.Lock()  # атомарная защита от параллельных тиков
+        self._system_lock = threading.Lock()  # блокирует тики при критических операциях
+        self._ping_hosts: list    = ["1.1.1.1", "8.8.8.8", "google.com"]
         self._update_status       = ""
+        self._critical_threads: list[threading.Thread] = []  # потоки, которые нельзя убивать
         self._bak_cache:   list   = []
         self._bak_cache_t: float  = 0
         self._mgmt_last_update:   float = 0
@@ -260,6 +262,14 @@ class XrayMonitor(App):
         # Останавливаем фоновый сборщик системной статистики
         if hasattr(self, '_sys_collector_stop'):
             self._sys_collector_stop.set()
+        # Ждём завершения критических потоков (обновление бинарника и т.д.)
+        for t in self._critical_threads:
+            if t.is_alive():
+                log.info("waiting for critical thread %s to finish...", t.name)
+                t.join(timeout=30.0)
+                if t.is_alive():
+                    log.warning("critical thread %s still alive after timeout", t.name)
+        self._critical_threads.clear()
         try:
             self.ip_registry.flush_to_db()
         except Exception:
@@ -342,6 +352,9 @@ class XrayMonitor(App):
 
     def _tick_worker(self) -> None:
         """Фоновый поток: gRPC-вызовы + обновление SQLite."""
+        if not self._system_lock.acquire(blocking=False):
+            self._fetch_lock.release()
+            return  # критическая операция в процессе — пропускаем тик
         try:
             # Обновляем блок-статистику в этом же потоке (не спавним новый)
             self.log_tail.update_block_stats()
@@ -364,6 +377,7 @@ class XrayMonitor(App):
             err_msg = str(e)
             self.call_from_thread(lambda: self._tick_error(err_msg))
         finally:
+            self._system_lock.release()
             self._fetch_lock.release()
 
     def _after_tick(self, d: dict) -> None:
@@ -605,11 +619,11 @@ class XrayMonitor(App):
     def action_reload_xray(self) -> None:
         """H — перезагрузка конфига xray (restart, т.к. hot reload не поддерживается)."""
         def _do() -> None:
-            ok, msg = reload_xray()
+            with self._system_lock:
+                ok, msg = reload_xray()
             if ok:
                 self.call_from_thread(lambda: self.notify(
                     "Конфиг применён (restart)", severity="warning"))
-                time.sleep(2)
                 self.call_from_thread(self.action_reconnect)
             else:
                 self.call_from_thread(lambda: self.notify(
@@ -619,11 +633,11 @@ class XrayMonitor(App):
 
     def action_restart_xray(self) -> None:
         def _do() -> None:
-            ok, msg = restart_xray()
+            with self._system_lock:
+                ok, msg = restart_xray()
             if ok:
                 self.call_from_thread(lambda: self.notify(
                     L["xray_restarted"], severity="warning"))
-                time.sleep(2)
                 self.call_from_thread(self.action_reconnect)
             else:
                 bak  = self._find_last_backup()
@@ -635,11 +649,11 @@ class XrayMonitor(App):
 
     def action_start_xray(self) -> None:
         def _do() -> None:
-            ok, msg = start_xray()
+            with self._system_lock:
+                ok, msg = start_xray()
             if ok:
                 self.call_from_thread(lambda: self.notify(
                     L["xray_started"], severity="information"))
-                time.sleep(2)
                 self.call_from_thread(self.action_reconnect)
             else:
                 self.call_from_thread(lambda: self.notify(
@@ -649,7 +663,8 @@ class XrayMonitor(App):
 
     def action_stop_xray(self) -> None:
         def _do() -> None:
-            ok, msg = stop_xray()
+            with self._system_lock:
+                ok, msg = stop_xray()
             if ok:
                 self.call_from_thread(lambda: self.notify(
                     L["xray_stopped"], severity="warning"))
@@ -691,7 +706,8 @@ class XrayMonitor(App):
                 time.sleep(2)
                 self.call_from_thread(self.action_reconnect)
 
-        update_xray_async(callback=_progress, done_callback=_done)
+        t = update_xray_async(callback=_progress, done_callback=_done)
+        self._critical_threads.append(t)
 
     def action_edit_config(self) -> None:
         path = self.cfg.path
@@ -716,6 +732,13 @@ class XrayMonitor(App):
         if not bak:
             self.notify(L["no_backups_found"], severity="warning"); return
         try:
+            # Проверяем синтаксис бэкапа ПЕРЕД применением
+            ok, out = self.cfg.check_syntax_file(bak)
+            if ok is False:
+                lines = out.splitlines()
+                msg = next((l for l in lines if "error" in l.lower()), out[:120])
+                self.notify(f"Бэкап повреждён: {msg}", severity="error")
+                return
             # Сохраняем текущий (возможно сломанный) конфиг перед откатом
             self._backup_config()
             shutil.copy2(bak, self.cfg.path)

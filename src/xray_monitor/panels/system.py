@@ -109,7 +109,7 @@ def render_ping(app: "XrayMonitor") -> Text:
             t.append(f"  {ms:5.0f} ms\n", col)
 
     t.append(f"\n  {L['dns_check']}\n", C["accent2"])
-    for dns in ["1.1.1.1", "8.8.8.8", "9.9.9.9"]:
+    for dns in app._ping_hosts[:2]:
         ms = app.sys_s.ping(dns)
         t.append(f"  {dns} (DNS)  ", C["dim"])
         t.append(f"{ms:.0f} ms  OK\n" if ms and ms > 0 else "...\n",

@@ -104,6 +104,9 @@ def get_xray_status() -> dict:
         r = subprocess.run(["systemctl", "is-active", _XRAY_SERVICE],
                            capture_output=True, text=True, timeout=5)
         result["running"] = r.stdout.strip() == "active"
+    except subprocess.TimeoutExpired:
+        log.warning("systemctl is-active timeout — aborting status check")
+        return result
     except Exception:
         pass
 
@@ -111,6 +114,9 @@ def get_xray_status() -> dict:
         r = subprocess.run(["systemctl", "is-enabled", _XRAY_SERVICE],
                            capture_output=True, text=True, timeout=5)
         result["enabled"] = r.stdout.strip() == "enabled"
+    except subprocess.TimeoutExpired:
+        log.warning("systemctl is-enabled timeout")
+        return result
     except Exception:
         pass
 
@@ -129,19 +135,49 @@ def get_xray_status() -> dict:
                     mem = line.split("=", 1)[1].strip()
                     if mem.isdigit():
                         result["memory"] = int(mem)
+        except subprocess.TimeoutExpired:
+            log.warning("systemctl show timeout")
         except Exception:
             pass
 
     return result
 
 
+def _verify_service_alive(delay: float = 1.5) -> Tuple[bool, str]:
+    """Ждёт delay секунд и проверяет, что xray не упал после старта."""
+    time.sleep(delay)
+    try:
+        r = subprocess.run(["systemctl", "is-active", _XRAY_SERVICE],
+                           capture_output=True, text=True, timeout=5)
+        if r.stdout.strip() == "active":
+            return True, ""
+        # Сервис упал — достаём причину из journalctl
+        try:
+            jr = subprocess.run(
+                ["journalctl", "-u", _XRAY_SERVICE, "-n", "5",
+                 "--no-pager", "-o", "cat"],
+                capture_output=True, text=True, timeout=5)
+            reason = jr.stdout.strip().splitlines()[-1] if jr.stdout.strip() else "unknown"
+        except Exception:
+            reason = "не удалось прочитать журнал"
+        return False, f"Сервис упал после старта: {reason[:150]}"
+    except subprocess.TimeoutExpired:
+        return False, "systemctl is-active timeout"
+    except Exception as e:
+        return False, str(e)
+
+
 def start_xray() -> Tuple[bool, str]:
     try:
         r = subprocess.run(["systemctl", "start", _XRAY_SERVICE],
                            capture_output=True, text=True, timeout=15)
-        if r.returncode == 0:
-            return True, "Xray запущен"
-        return False, (r.stderr or r.stdout).strip()[:200]
+        if r.returncode != 0:
+            return False, (r.stderr or r.stdout).strip()[:200]
+        # Верифицируем, что сервис реально поднялся
+        alive, err = _verify_service_alive()
+        if not alive:
+            return False, err
+        return True, "Xray запущен"
     except Exception as e:
         return False, str(e)
 
@@ -161,9 +197,12 @@ def restart_xray() -> Tuple[bool, str]:
     try:
         r = subprocess.run(["systemctl", "restart", _XRAY_SERVICE],
                            capture_output=True, text=True, timeout=15)
-        if r.returncode == 0:
-            return True, "Xray перезапущен"
-        return False, (r.stderr or r.stdout).strip()[:200]
+        if r.returncode != 0:
+            return False, (r.stderr or r.stdout).strip()[:200]
+        alive, err = _verify_service_alive()
+        if not alive:
+            return False, err
+        return True, "Xray перезапущен"
     except Exception as e:
         return False, str(e)
 
