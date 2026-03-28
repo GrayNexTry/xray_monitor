@@ -12,12 +12,17 @@ import (
 
 func renderDashboard(m Model) string {
 	contentH := m.height - 3
-	if contentH < 6 {
+	if contentH < 10 {
 		return ""
 	}
-	// topH + botH == contentH — вся высота без потерь
-	topH := contentH * 6 / 10
-	botH := contentH - topH
+	// StylePanel.Height(h) sets INNER height; top+bottom border adds 2 per row.
+	// 2 rows × 2 border lines = 4 overhead → subtract so rendered total == contentH.
+	available := contentH - 4
+	if available < 4 {
+		available = 4
+	}
+	topH := available * 6 / 10
+	botH := available - topH
 
 	leftW := m.width * 5 / 8
 	rightW := m.width - leftW - 3
@@ -147,7 +152,7 @@ func renderUserTable(m Model, w, h int) string {
 		}
 	})
 
-	header := StyleDim.Render(Pad(" User", 22) + Pad("↑ Up/s", 12) + Pad("↓ Dn/s", 12) + "Today↑  Today↓")
+	header := StyleDim.Render(Pad(" User", 22) + Pad("↑ Up/s", 12) + Pad("↓ Dn/s", 12) + "Graph ↓")
 	var sb strings.Builder
 	sb.WriteString(StyleTitle.Render(fmt.Sprintf(" USERS (%d) ", len(rows))) + "\n")
 	sb.WriteString(header + "\n")

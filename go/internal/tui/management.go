@@ -12,7 +12,8 @@ import (
 
 func renderManagement(m Model) string {
 	w := m.width
-	h := m.height - 3
+	// StylePanel border adds 2 lines (top+bottom) → subtract so rendered height == contentH.
+	h := m.height - 3 - 2
 	leftW := w * 2 / 3
 	rightW := w - leftW - 3
 

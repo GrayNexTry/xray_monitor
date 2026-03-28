@@ -14,8 +14,14 @@ func renderSystem(m Model) string {
 		return ""
 	}
 
-	topH := contentH / 2
-	botH := contentH - topH
+	// StylePanel.Height(h) = inner height; border adds 2 per row.
+	// 2 rows × 2 = 4 overhead → subtract so rendered total == contentH.
+	available := contentH - 4
+	if available < 4 {
+		available = 4
+	}
+	topH := available / 2
+	botH := available - topH
 
 	// Top row: two equal-width panels separated by 2 spaces
 	halfW := (w - 2) / 2
