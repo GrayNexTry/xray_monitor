@@ -8,18 +8,25 @@ import (
 )
 
 func renderSystem(m Model) string {
-	sys := m.lastSys
 	w := m.width
 	contentH := m.height - 3
-	halfW := w/2 - 2
+	if contentH < 6 {
+		return ""
+	}
 
-	topLeft := renderCPURam(m, halfW, contentH/2)
-	topRight := renderNetDisk(m, halfW, contentH/2)
+	topH := contentH / 2
+	botH := contentH - topH
+
+	// Top row: two equal-width panels separated by 2 spaces
+	halfW := (w - 2) / 2
+	rightW := w - 2 - halfW // absorbs rounding when w is odd
+
+	topLeft := renderCPURam(m, halfW, topH)
+	topRight := renderNetDisk(m, rightW, topH)
 	topRow := lipgloss.JoinHorizontal(lipgloss.Top, topLeft, "  ", topRight)
 
-	bottomLeft := renderProcs(m, halfW, contentH/2)
-	_ = sys
-	bottomRow := bottomLeft
+	// Bottom row: processes span full width
+	bottomRow := renderProcs(m, w-2, botH)
 
 	return lipgloss.JoinVertical(lipgloss.Left, topRow, bottomRow)
 }

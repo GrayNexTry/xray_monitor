@@ -25,7 +25,9 @@
       "Bash(ls /c/Python3*)",
       "Read(//c/Users/wwwne/**)",
       "Bash(\"/c/Users/wwwne/.local/bin/python3.14.exe\" -c \":*)",
-      "Bash(wc -l /c/Users/wwwne/OneDrive/Документы/xray_monitor/src/xray_monitor/**/*.py)"
+      "Bash(wc -l /c/Users/wwwne/OneDrive/Документы/xray_monitor/src/xray_monitor/**/*.py)",
+      "Bash(go build:*)",
+      "Bash(where go:*)"
     ]
   }
 }

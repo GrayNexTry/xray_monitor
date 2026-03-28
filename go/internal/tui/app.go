@@ -190,6 +190,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.vpLog.Height = contentH
 		m.vpConn.Width = m.width - 4
 		m.vpConn.Height = contentH
+		// Re-render viewport content at the new width
+		if len(m.lastLog) > 0 {
+			m.vpLog.SetContent(renderLogLines(m.lastLog, m.width-4))
+		}
+		m.vpConn.SetContent(renderEventLines(m.collector, m.geo, m.width-4))
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -216,6 +221,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.store != nil && msg.snap.Users != nil {
 				m.store.Update(msg.snap.Users)
 			}
+		}
+		// Keep the connections viewport fresh on every stats tick
+		if m.activeTab == tabConnections {
+			m.vpConn.SetContent(renderEventLines(m.collector, m.geo, m.width-4))
 		}
 
 	case logMsg:
@@ -317,17 +326,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.showQR = true
 			m.qrURL = m.clientURLs[m.selectedURL].URL
 		}
-	case "r", "R":
-		if m.activeTab == tabManagement {
-			go func() {
-				m.xrayMgr.Restart()
-			}()
-		}
 	}
 
 	// Per-tab handling
 	var cmd tea.Cmd
 	switch m.activeTab {
+	case tabKeys:
+		switch key {
+		case "up", "k":
+			if m.selectedURL > 0 {
+				m.selectedURL--
+			}
+		case "down", "j":
+			if m.selectedURL < len(m.clientURLs)-1 {
+				m.selectedURL++
+			}
+		}
 	case tabLogs:
 		m.vpLog, cmd = m.vpLog.Update(msg)
 	case tabConnections:
