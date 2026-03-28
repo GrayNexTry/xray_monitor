@@ -12,18 +12,31 @@ import (
 
 func renderDashboard(m Model) string {
 	contentH := m.height - 3
+	if contentH < 6 {
+		return ""
+	}
+	// topH + botH == contentH — вся высота без потерь
+	topH := contentH * 6 / 10
+	botH := contentH - topH
+
 	leftW := m.width * 5 / 8
 	rightW := m.width - leftW - 3
+	if rightW < 10 {
+		rightW = 10
+	}
 
-	left := renderOverview(m, leftW, contentH/2)
-	right := renderUserTable(m, rightW, contentH)
-	topRow := lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", right)
+	topRow := lipgloss.JoinHorizontal(lipgloss.Top,
+		renderOverview(m, leftW, topH),
+		"  ",
+		renderUserTable(m, rightW, topH),
+	)
+	botRow := lipgloss.JoinHorizontal(lipgloss.Top,
+		renderTrafficTable(m, leftW, botH),
+		"  ",
+		renderSysMini(m, rightW, botH),
+	)
 
-	bottomLeft := renderTrafficTable(m, leftW, contentH/2-2)
-	bottomRight := renderSysMini(m, rightW, contentH/2-2)
-	bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, bottomLeft, "  ", bottomRight)
-
-	return lipgloss.JoinVertical(lipgloss.Left, topRow, bottomRow)
+	return lipgloss.JoinVertical(lipgloss.Left, topRow, botRow)
 }
 
 func renderOverview(m Model, w, h int) string {
