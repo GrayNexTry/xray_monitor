@@ -34,6 +34,10 @@ class IPRecord:
     sni: deque = field(default_factory=lambda: deque(maxlen=50))
 
 
+_MAX_RECORDS = 5000   # макс. IP-записей в памяти (защита от раздувания)
+_EVICT_AGE   = 86400 * 7  # удалять записи старше 7 дней при переполнении
+
+
 class IPRegistry:
     def __init__(self, traffic_log: TrafficLog) -> None:
         self._tl = traffic_log
@@ -46,6 +50,8 @@ class IPRegistry:
         self._sni_flush: dict = {}
         # Dirty tracking for flush_to_db
         self._dirty_ips: set[str] = set()
+        self._client_ips_dirty: bool = False
+        self._last_evict: float = 0.0
 
     # ── Write API (worker threads) ────────────────────────────
 
@@ -70,6 +76,7 @@ class IPRegistry:
         cutoff = now - 86400
         with self._lock:
             self._client_ips = client_ips
+            self._client_ips_dirty = True
             for email, ips in client_ips.items():
                 for ip, ts in ips.items():
                     if ts < cutoff:
@@ -174,11 +181,42 @@ class IPRegistry:
                 em_ips.pop(ip, None)
         self._tl.delete_by_ip(ip)
 
+    # ── Eviction ──────────────────────────────────────────────
+
+    def _evict_stale(self) -> None:
+        """Удаляет неактивные IP-записи при переполнении. Вызывается под _lock."""
+        if len(self._records) <= _MAX_RECORDS:
+            return
+        now = time.time()
+        cutoff = now - _EVICT_AGE
+        stale = [
+            ip for ip, rec in self._records.items()
+            if rec.last_active < cutoff and ip not in self._online
+        ]
+        for ip in stale:
+            self._records.pop(ip, None)
+            self._dirty_ips.discard(ip)
+        if len(self._records) > _MAX_RECORDS:
+            # Если всё ещё переполнение — удаляем самые старые
+            by_age = sorted(
+                ((ip, rec.last_active) for ip, rec in self._records.items()
+                 if ip not in self._online),
+                key=lambda x: x[1],
+            )
+            to_remove = len(self._records) - _MAX_RECORDS + 500  # запас
+            for ip, _ in by_age[:to_remove]:
+                self._records.pop(ip, None)
+                self._dirty_ips.discard(ip)
+
     # ── Persistence ───────────────────────────────────────────
 
     def flush_to_db(self) -> None:
         """Снимок под lock → DB write без lock."""
         with self._lock:
+            now = time.time()
+            if now - self._last_evict > 300:
+                self._evict_stale()
+                self._last_evict = now
             sni_buf = self._sni_flush
             self._sni_flush = {}
             dirty = self._dirty_ips
@@ -191,8 +229,11 @@ class IPRegistry:
                 if rec:
                     ip_bytes_snap[ip] = [rec.up, rec.dn]
                     email_snap[ip] = rec.email
-            # Snapshot client_ips for save_ip_connections
-            conn_snap = {em: dict(ips) for em, ips in self._client_ips.items()}
+            # Snapshot client_ips for save_ip_connections (only if changed)
+            conn_snap: dict = {}
+            if self._client_ips_dirty:
+                conn_snap = {em: dict(ips) for em, ips in self._client_ips.items()}
+                self._client_ips_dirty = False
 
         # DB writes without lock
         if sni_buf:

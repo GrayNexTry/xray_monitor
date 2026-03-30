@@ -155,7 +155,7 @@ class XrayMonitor(App):
         self._critical_threads: list[threading.Thread] = []  # потоки, которые нельзя убивать
         # Фиксированный пул потоков — предотвращает утечку VIRT-памяти
         # (каждый threading.Thread выделяет ~8 МБ стека)
-        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="xm")
+        self._pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="xm")
         self._bak_cache:   list   = []
         self._bak_cache_t: float  = 0
         self._mgmt_last_update:   float = 0
