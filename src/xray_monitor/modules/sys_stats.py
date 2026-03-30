@@ -37,7 +37,7 @@ class SysStats:
         self._tcp_cache: tuple = (0, 0, 0.0)   # (est, listen, timestamp)
         self._procs_cache: tuple = ([], 0.0)    # (top_procs, timestamp)
         self._procs_cache_ttl: float = 10.0     # обновлять список процессов раз в 10 сек
-        self._ping_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="ping")
+        self._ping_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ping")
 
     def _find_xray_pid(self) -> Optional[int]:
         """Находит PID xray — кэш 30 секунд."""

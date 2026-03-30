@@ -19,7 +19,7 @@ from urllib.request import urlopen
 
 log = logging.getLogger(__name__)
 
-_CACHE_MAX = 2000
+_CACHE_MAX = 1000
 _CACHE_TTL_OFFLINE = 86400 * 7   # 7 дней для MaxMind (база обновляется редко)
 _CACHE_TTL_ONLINE  = 3600        # 1 час для ip-api.com
 _PENDING_TIMEOUT   = 30
